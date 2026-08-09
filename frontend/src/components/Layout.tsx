@@ -1,80 +1,45 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/store/auth'
 import api from '@/api/client'
+import type { Page } from '@/types'
 
-const S = {
-  shell: { display: 'flex', height: '100vh', overflow: 'hidden' } as const,
-  sidebar: {
-    width: 220,
-    background: '#1e293b',
-    color: '#cbd5e1',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    flexShrink: 0,
-  },
-  logo: {
-    padding: '20px 16px 16px',
-    fontSize: 18,
-    fontWeight: 700,
-    color: '#f8fafc',
-    borderBottom: '1px solid #334155',
-  },
-  nav: { flex: 1, overflowY: 'auto' as const, padding: '8px 0' },
-  navSection: { padding: '8px 16px 4px', fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: 1 },
-  link: (active: boolean) => ({
-    display: 'block',
-    padding: '8px 16px',
-    color: active ? '#f8fafc' : '#94a3b8',
-    background: active ? '#334155' : 'transparent',
-    textDecoration: 'none',
-    fontSize: 14,
-    borderRadius: 4,
-    margin: '1px 8px',
-    cursor: 'pointer',
-  }),
-  footer: { padding: '12px 16px', borderTop: '1px solid #334155', fontSize: 13, color: '#64748b' },
-  main: { flex: 1, overflowY: 'auto' as const, background: '#f8fafc' },
-  header: {
-    padding: '12px 24px',
-    background: '#fff',
-    borderBottom: '1px solid #e2e8f0',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    position: 'sticky' as const,
-    top: 0,
-    zIndex: 10,
-  },
-  content: { padding: '24px' },
-  btn: {
-    padding: '6px 14px',
-    border: '1px solid #e2e8f0',
-    borderRadius: 6,
-    background: '#fff',
-    cursor: 'pointer',
-    fontSize: 13,
-    color: '#475569',
-  },
+const NAV_LINK: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+  padding: '7px 10px', borderRadius: 'var(--radius-md)',
+  fontSize: 13, color: 'var(--color-text)', textDecoration: 'none',
+  cursor: 'pointer',
+}
+const NAV_LINK_ACTIVE: React.CSSProperties = {
+  ...NAV_LINK,
+  background: 'color-mix(in srgb, var(--color-accent) 14%, transparent)',
+  color: 'var(--color-accent)',
 }
 
-interface NavItem { label: string; to: string }
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+}
+
+interface PageGroup { name: string; pages: Page[] }
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const [pages, setPages] = useState<{ id: number; title: string }[]>([])
-  const [pagesLoaded, setPagesLoaded] = useState(false)
+  const [groups, setGroups] = useState<PageGroup[]>([])
 
-  const handleNavExpand = async () => {
-    if (pagesLoaded) return
-    try {
-      const res = await api.get('/pages')
-      setPages(res.data.data || [])
-      setPagesLoaded(true)
-    } catch { /* ignore */ }
-  }
+  useEffect(() => {
+    api.get('/pages').then(res => {
+      const pages: Page[] = res.data.data || []
+      const map = new Map<string, Page[]>()
+      pages.forEach(p => {
+        const g = p.group || 'General'
+        if (!map.has(g)) map.set(g, [])
+        map.get(g)!.push(p)
+      })
+      setGroups(Array.from(map.entries()).map(([name, pages]) => ({ name, pages })))
+    }).catch(() => {})
+  }, [])
 
   const handleLogout = async () => {
     try { await api.post('/auth/logout') } catch { /* ignore */ }
@@ -82,62 +47,126 @@ export default function Layout() {
     navigate('/login')
   }
 
-  const adminNav: NavItem[] = [
-    { label: 'Users', to: '/admin/users' },
-    { label: 'Groups', to: '/admin/groups' },
-    { label: 'Pages', to: '/admin/pages' },
-    { label: 'Audit Log', to: '/admin/audit' },
-  ]
-
   const active = (to: string) => location.pathname === to || location.pathname.startsWith(to + '/')
+  const screenTitle = () => {
+    const p = location.pathname
+    if (p === '/' || p === '/pages') return 'Home'
+    if (p.startsWith('/admin/users')) return 'Users'
+    if (p.startsWith('/admin/groups')) return 'Groups'
+    if (p.startsWith('/admin/audit')) return 'Audit Log'
+    if (p.startsWith('/admin/pages')) return 'Pages'
+    if (p === '/profile') return 'Profile'
+    return ''
+  }
+
+  const isAdmin = user?.workspace_role === 'Admin'
+
+  const TableIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="10" x2="9" y2="20"/>
+    </svg>
+  )
+  const FormIcon = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3h9l3 3v15H6z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="13" y2="18"/>
+    </svg>
+  )
 
   return (
-    <div style={S.shell}>
-      <aside style={S.sidebar}>
-        <div style={S.logo}>Yantra</div>
-        <nav style={S.nav} onClick={handleNavExpand}>
-          <div style={S.navSection}>Pages</div>
-          {pages.length === 0 && pagesLoaded && (
-            <span style={{ padding: '6px 16px', fontSize: 13, color: '#475569', display: 'block' }}>No pages yet</span>
-          )}
-          {pages.map((p) => (
-            <Link key={p.id} to={`/pages/${p.id}`} style={S.link(active(`/pages/${p.id}`))}>
-              {p.title}
-            </Link>
-          ))}
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      {/* ── Sidebar ── */}
+      <aside style={{
+        width: 252, flexShrink: 0,
+        background: 'var(--color-surface)',
+        borderRight: '1px solid var(--color-divider)',
+        display: 'flex', flexDirection: 'column',
+        padding: 'var(--space-4) var(--space-3)',
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 var(--space-2)', marginBottom: 'var(--space-6)' }}>
+          <div style={{
+            width: 26, height: 26,
+            border: '1.5px solid var(--color-accent)', borderRadius: 'var(--radius-sm)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--color-accent)', fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 13,
+          }}>Y</div>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Yantra</div>
+        </div>
 
-          {user?.workspace_role === 'Admin' && (
-            <>
-              <div style={{ ...S.navSection, marginTop: 12 }}>Admin</div>
-              {adminNav.map((n) => (
-                <Link key={n.to} to={n.to} style={S.link(active(n.to))}>
-                  {n.label}
+        {/* Pages section */}
+        <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'color-mix(in srgb, var(--color-text) 50%, transparent)', padding: '0 var(--space-2)', marginBottom: 6 }}>Pages</div>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 'var(--space-4)', overflowY: 'auto', flex: 1 }}>
+          {groups.length === 0 && (
+            <span style={{ padding: '6px 10px', fontSize: 12, color: 'var(--color-muted)' }}>No pages yet</span>
+          )}
+          {groups.map(g => (
+            <div key={g.name} style={{ marginBottom: 'var(--space-2)' }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'color-mix(in srgb, var(--color-text) 65%, transparent)', padding: '4px var(--space-2)' }}>{g.name}</div>
+              {g.pages.map(p => (
+                <Link
+                  key={p.id}
+                  to={`/pages/${p.id}`}
+                  style={active(`/pages/${p.id}`) ? NAV_LINK_ACTIVE : NAV_LINK}
+                >
+                  {p.page_type === 'form' ? <FormIcon /> : <TableIcon />}
+                  {p.title}
                 </Link>
               ))}
-            </>
-          )}
+            </div>
+          ))}
         </nav>
-        <div style={S.footer}>
-          <div style={{ marginBottom: 4, color: '#e2e8f0', fontWeight: 500 }}>{user?.display_name}</div>
-          <div style={{ fontSize: 11 }}>{user?.email}</div>
-          <div style={{ fontSize: 11, marginTop: 2, color: '#475569' }}>{user?.workspace_role}</div>
+
+        {/* Admin section */}
+        {isAdmin && (
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'color-mix(in srgb, var(--color-text) 50%, transparent)', padding: '0 var(--space-2)', marginBottom: 6 }}>Admin</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {[
+                { to: '/admin/users', label: 'Users', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.4"/><path d="M3 19c0-3.2 2.6-5 6-5s6 1.8 6 5"/><path d="M15.5 14.3c2.2.3 4 1.7 4 4.7"/></svg> },
+                { to: '/admin/groups', label: 'Groups', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="15" width="7" height="7" rx="1.5"/><rect x="14" y="15" width="7" height="7" rx="1.5"/></svg> },
+                { to: '/admin/pages', label: 'Pages', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg> },
+                { to: '/admin/audit', label: 'Audit Log', icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 3v6c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V6z"/></svg> },
+              ].map(({ to, label, icon }) => (
+                <Link key={to} to={to} style={active(to) ? NAV_LINK_ACTIVE : NAV_LINK}>
+                  {icon}{label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Footer: Profile */}
+        <div style={{ marginTop: 'auto', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Link to="/profile" style={active('/profile') ? NAV_LINK_ACTIVE : NAV_LINK}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+            Profile
+          </Link>
         </div>
       </aside>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <header style={S.header}>
-          <span style={{ fontSize: 15, fontWeight: 500, color: '#1e293b' }}>
-            {location.pathname === '/' ? 'Home' : ''}
-          </span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Link to="/profile" style={{ ...S.btn, textDecoration: 'none' }}>Profile</Link>
-            <button style={S.btn} onClick={handleLogout}>Logout</button>
+      {/* ── Main area ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <header className="nav" style={{ borderBottom: '1px solid var(--color-divider)', background: 'var(--color-bg)' }}>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>{screenTitle()}</div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 12.5, color: 'var(--color-muted)' }}>
+            {user && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: 'var(--color-accent-800)', color: 'var(--color-accent-100)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 600, flexShrink: 0,
+                  }}>{initials(user.display_name)}</div>
+                  <span>Signed in as <strong style={{ color: 'var(--color-text)', fontWeight: 500 }}>{user.display_name}</strong> · {user.workspace_role}</span>
+                </div>
+                <button className="btn btn-secondary" onClick={handleLogout} style={{ padding: '5px 12px' }}>Sign out</button>
+              </>
+            )}
           </div>
         </header>
-        <main style={S.main}>
-          <div style={S.content}>
-            <Outlet />
-          </div>
+        <main style={{ flex: 1, padding: 'var(--space-6) var(--space-8)', overflowY: 'auto' }}>
+          <Outlet />
         </main>
       </div>
     </div>

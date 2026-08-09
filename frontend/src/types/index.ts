@@ -27,7 +27,9 @@ export interface GroupMember {
 export interface Page {
   id: number
   title: string
+  description?: string
   page_type: 'data_table' | 'form'
+  group?: string
   page_role?: string
   created_at?: string
   updated_at?: string

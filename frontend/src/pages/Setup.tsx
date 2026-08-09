@@ -1,27 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '@/api/client'
-
-const S = {
-  page: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' } as const,
-  card: { background: '#fff', borderRadius: 12, padding: 40, width: '100%', maxWidth: 440, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' } as const,
-  title: { fontSize: 24, fontWeight: 700, marginBottom: 6, color: '#1e293b' } as const,
-  sub: { fontSize: 14, color: '#64748b', marginBottom: 28 } as const,
-  label: { display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' } as const,
-  input: { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 16 } as const,
-  btn: { width: '100%', padding: '10px 0', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 4 } as const,
-  err: { color: '#dc2626', fontSize: 13, marginBottom: 12 } as const,
-}
+import { useAuth } from '@/store/auth'
 
 export default function Setup() {
   const navigate = useNavigate()
+  const { login } = useAuth()
   const [checking, setChecking] = useState(true)
-  const [form, setForm] = useState({ email: '', display_name: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ display_name: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    api.get('/setup/status').then((res) => {
+    api.get('/setup/status').then(res => {
       if (res.data.setup_complete) navigate('/login', { replace: true })
       else setChecking(false)
     }).catch(() => setChecking(false))
@@ -29,47 +20,61 @@ export default function Setup() {
 
   if (checking) return null
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    if (form.password !== form.confirm) { setError('Passwords do not match'); return }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
-    setLoading(true)
+    if (form.password !== form.confirm) { setError('Passwords do not match.'); return }
+    if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return }
+    setError(''); setLoading(true)
     try {
-      await api.post('/setup', {
-        email: form.email,
+      const res = await api.post('/setup', {
         display_name: form.display_name,
+        email: form.email,
         password: form.password,
       })
-      navigate('/login', { replace: true })
+      login(res.data.token, res.data.user)
+      navigate('/')
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } }
-      setError(e.response?.data?.error || 'Setup failed')
-    } finally {
-      setLoading(false)
-    }
+      setError(e.response?.data?.error || 'Setup failed.')
+    } finally { setLoading(false) }
   }
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
-
   return (
-    <div style={S.page}>
-      <div style={S.card}>
-        <h1 style={S.title}>Welcome to Yantra</h1>
-        <p style={S.sub}>Create your admin account to get started.</p>
-        {error && <p style={S.err}>{error}</p>}
-        <form onSubmit={handleSubmit}>
-          <label style={S.label}>Full name</label>
-          <input style={S.input} value={form.display_name} onChange={set('display_name')} required />
-          <label style={S.label}>Email address</label>
-          <input style={S.input} type="email" value={form.email} onChange={set('email')} required />
-          <label style={S.label}>Password</label>
-          <input style={S.input} type="password" value={form.password} onChange={set('password')} required minLength={8} />
-          <label style={S.label}>Confirm password</label>
-          <input style={S.input} type="password" value={form.confirm} onChange={set('confirm')} required />
-          <button style={S.btn} type="submit" disabled={loading}>
-            {loading ? 'Setting up…' : 'Create workspace'}
+    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div className="card elev-md" style={{ width: 'min(440px, 100%)', padding: 'var(--space-8)', display: 'flex', flexDirection: 'column' }}>
+        <div className="tag tag-outline" style={{ alignSelf: 'flex-start' }}>FIRST-RUN SETUP</div>
+        <h2 style={{ marginTop: 'var(--space-3)' }}>Create the admin account</h2>
+        <p className="text-muted" style={{ fontSize: 13, marginBottom: 'var(--space-4)' }}>
+          This is a one-time step. Once an Admin exists, this screen disables itself.
+        </p>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <div className="field">
+            <label>Display name</label>
+            <input className="input" value={form.display_name} onChange={set('display_name')} placeholder="Suraj Iyer" required />
+          </div>
+          <div className="field">
+            <label>Email</label>
+            <input className="input" type="email" value={form.email} onChange={set('email')} placeholder="you@company.com" required />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input className="input" type="password" value={form.password} onChange={set('password')} placeholder="Minimum 8 characters" required />
+          </div>
+          <div className="field" style={{ marginBottom: 'var(--space-1)' }}>
+            <label>Confirm password</label>
+            <input className="input" type="password" value={form.confirm} onChange={set('confirm')} required />
+          </div>
+          {error && (
+            <div style={{ background: 'var(--color-neutral-800)', borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-3)', fontSize: 13, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l9 17H3z"/><line x1="12" y1="9" x2="12" y2="14"/><circle cx="12" cy="17.3" r=".6" fill="currentColor"/></svg>
+              {error}
+            </div>
+          )}
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+            {loading ? 'Creating…' : 'Create admin account & continue'}
           </button>
         </form>
       </div>

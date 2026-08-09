@@ -7,6 +7,8 @@ import Setup from '@/pages/Setup'
 import Login from '@/pages/Login'
 import ChangePassword from '@/pages/ChangePassword'
 import Profile from '@/pages/Profile'
+import Home from '@/pages/Home'
+import NotAuthorized from '@/pages/NotAuthorized'
 
 import AdminUsers from '@/pages/admin/Users'
 import AdminGroups from '@/pages/admin/Groups'
@@ -26,14 +28,14 @@ export default function App() {
             <Route path="/login" element={<Login />} />
           </Route>
 
-          {/* Accessible when logged in but must_change_password is true */}
           <Route path="/change-password" element={<ChangePassword />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
-              <Route path="/" element={<Navigate to="/pages" replace />} />
-              <Route path="/pages" element={<EmptyPageList />} />
+              <Route index element={<Navigate to="/home" replace />} />
+              <Route path="/home" element={<Home />} />
               <Route path="/pages/:id" element={<PageViewer />} />
+              <Route path="/not-authorized" element={<NotAuthorized />} />
               <Route path="/profile" element={<Profile />} />
 
               <Route element={<AdminRoute />}>
@@ -47,17 +49,9 @@ export default function App() {
             </Route>
           </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
-  )
-}
-
-function EmptyPageList() {
-  return (
-    <div style={{ padding: 32, color: '#64748b', textAlign: 'center' }}>
-      <p style={{ fontSize: 16 }}>Select a page from the sidebar.</p>
-    </div>
   )
 }

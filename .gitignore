@@ -43,3 +43,6 @@ frontend/dist/
 
 # Docker
 docker-compose.override.yml
+
+# UI mockup zip (design artifact, not tracked in git)
+*.zip

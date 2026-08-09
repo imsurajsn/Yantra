@@ -1,254 +1,608 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '@/api/client'
-import type { Page, PageConfig, ColumnDef, FormField } from '@/types'
-
-const S = {
-  hdr: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 } as const,
-  title: { fontSize: 20, fontWeight: 600, color: '#1e293b' } as const,
-  btn: { padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  smBtn: { padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#475569', marginRight: 4 } as const,
-  dangerBtn: { padding: '4px 10px', border: '1px solid #fecaca', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#dc2626' } as const,
-  tableWrap: { background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto' as const, marginBottom: 24 },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 14 },
-  th: { padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' as const, fontWeight: 600, color: '#374151' },
-  td: { padding: '10px 16px', borderBottom: '1px solid #f1f5f9', color: '#1e293b' },
-  form: { background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', padding: 28, maxWidth: 680 } as const,
-  label: { display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151', marginTop: 16 } as const,
-  input: { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14 } as const,
-  select: { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14 } as const,
-  textarea: { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, minHeight: 80, resize: 'vertical' as const, fontFamily: 'monospace' } as const,
-  row: { display: 'flex', gap: 8, marginTop: 20 } as const,
-  save: { padding: '9px 24px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  cancel: { padding: '9px 20px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  err: { color: '#dc2626', fontSize: 13, marginTop: 8 } as const,
-  ok: { color: '#16a34a', fontSize: 13, marginTop: 8 } as const,
-  subSection: { border: '1px solid #e2e8f0', borderRadius: 6, padding: 16, marginTop: 12 } as const,
-  addBtn: { padding: '5px 12px', border: '1px dashed #94a3b8', borderRadius: 5, background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#64748b', marginTop: 8 } as const,
-}
+import type { Page, PageACLEntry, Group, User } from '@/types'
 
 interface Props { mode?: 'create' | 'edit' }
+
+type ConfigStage = 'edit' | 'preview'
+type PageType = 'data_table' | 'form'
+
+interface ParsedConfig {
+  title?: string
+  description?: string
+  group?: string
+  page_type?: string
+  method?: string
+  endpoint?: string
+  url?: string
+  authHeaders?: Record<string, string>
+  columns?: { key: string; label: string; sortable?: boolean; editable?: boolean }[]
+  fields?: { key: string; label: string; type?: string; required?: boolean; sensitive?: boolean; options?: string[] }[]
+  writeback?: { enabled: boolean; method?: string; endpoint?: string }
+}
+
+function parseYaml(yaml: string): { config: ParsedConfig | null; errors: { line: number; message: string }[] } {
+  const errors: { line: number; message: string }[] = []
+  try {
+    // Light YAML subset parser: key: value, nested via indentation
+    // Enough for the page config schema
+    const lines = yaml.split('\n')
+    const obj: Record<string, unknown> = {}
+    const stack: { indent: number; obj: Record<string, unknown> }[] = [{ indent: -1, obj }]
+    let lastKey = ''
+    let inList = false
+    let listItems: Record<string, unknown>[] = []
+    let listKey = ''
+
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i]
+      const trimmed = raw.trimEnd()
+      if (!trimmed || trimmed.trim().startsWith('#')) continue
+      const indent = raw.length - raw.trimStart().length
+      const content = trimmed.trim()
+
+      if (content.startsWith('- ')) {
+        // list item
+        if (!inList) { inList = true; listItems = []; }
+        const itemContent = content.slice(2)
+        if (itemContent.includes(':')) {
+          const item: Record<string, unknown> = {}
+          // parse inline key-values for list items
+          const kvMatch = itemContent.match(/^([^:]+):\s*(.*)$/)
+          if (kvMatch) item[kvMatch[1].trim()] = kvMatch[2].trim()
+          listItems.push(item)
+        } else {
+          listItems.push({ value: itemContent })
+        }
+        continue
+      }
+
+      if (inList && content.includes(':') && !content.startsWith('-')) {
+        // continuation of list item properties
+        const last = listItems[listItems.length - 1]
+        if (last) {
+          const kvMatch = content.match(/^([^:]+):\s*(.*)$/)
+          if (kvMatch) last[kvMatch[1].trim()] = kvMatch[2].trim() || true
+          continue
+        }
+      }
+
+      if (inList) {
+        // flush list
+        const top = stack[stack.length - 1].obj
+        top[listKey] = listItems
+        inList = false; listItems = []
+      }
+
+      if (content.endsWith(':')) {
+        lastKey = content.slice(0, -1).trim()
+        const top = stack[stack.length - 1].obj
+        const newObj: Record<string, unknown> = {}
+        top[lastKey] = newObj
+        stack.push({ indent, obj: newObj })
+        continue
+      }
+
+      const kvMatch = content.match(/^([^:]+):\s*(.*)$/)
+      if (kvMatch) {
+        const key = kvMatch[1].trim()
+        const value = kvMatch[2].trim()
+        if (!value) {
+          // next lines may be a list
+          listKey = key
+          inList = false
+        } else {
+          const top = stack[stack.length - 1].obj
+          top[key] = value === 'true' ? true : value === 'false' ? false : value
+        }
+      }
+    }
+
+    if (inList) {
+      const top = stack[stack.length - 1].obj
+      top[listKey] = listItems
+    }
+
+    if (!obj.title) errors.push({ line: 1, message: '`title` is required' })
+    if (!obj.endpoint && !obj.url) errors.push({ line: 1, message: '`endpoint` or `url` is required' })
+
+    return { config: obj as unknown as ParsedConfig, errors }
+  } catch {
+    errors.push({ line: 1, message: 'Invalid YAML — check your formatting' })
+    return { config: null, errors }
+  }
+}
+
+const DEFAULT_TABLE_YAML = `title: My Data Table
+description: A description of this page.
+group: General
+page_type: data_table
+method: GET
+endpoint: https://api.example.com/records
+authHeaders:
+  Authorization: Bearer [REDACTED]
+columns:
+  - key: id
+    label: ID
+  - key: name
+    label: Name
+    sortable: true
+  - key: status
+    label: Status
+`
+
+const DEFAULT_FORM_YAML = `title: My Form
+description: A description of this page.
+group: General
+page_type: form
+method: POST
+endpoint: https://api.example.com/submit
+authHeaders:
+  Authorization: Bearer [REDACTED]
+fields:
+  - key: name
+    label: Full name
+    type: text
+    required: true
+  - key: email
+    label: Email address
+    type: text
+    required: true
+  - key: message
+    label: Message
+    type: text
+`
+
+function ACLDialog({ pageId, onClose }: { pageId: number; onClose: () => void }) {
+  const [acl, setAcl] = useState<PageACLEntry[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [users, setUsers] = useState<User[]>([])
+  const [addType, setAddType] = useState<'group' | 'user'>('group')
+  const [addId, setAddId] = useState('')
+  const [addRole, setAddRole] = useState<'Viewer' | 'Editor' | 'Owner'>('Viewer')
+  const [matrixMode, setMatrixMode] = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      api.get(`/pages/${pageId}/acl`),
+      api.get('/groups'),
+      api.get('/admin/users'),
+    ]).then(([aclR, gR, uR]) => {
+      setAcl(aclR.data.data || [])
+      setGroups(gR.data.data || [])
+      setUsers(uR.data.data || [])
+    })
+  }, [pageId])
+
+  const subjectLabel = (entry: PageACLEntry) => {
+    if (entry.subject_type === 'group') {
+      return groups.find(g => g.id === entry.subject_id)?.name || `Group #${entry.subject_id}`
+    }
+    const u = users.find(u => u.id === entry.subject_id)
+    return u ? `${u.display_name} <${u.email}>` : `User #${entry.subject_id}`
+  }
+
+  const handleAdd = async () => {
+    if (!addId) return
+    await api.post(`/pages/${pageId}/acl`, { subject_type: addType, subject_id: Number(addId), page_role: addRole })
+    const r = await api.get(`/pages/${pageId}/acl`)
+    setAcl(r.data.data || [])
+    setAddId('')
+  }
+
+  const handleRemove = async (entry: PageACLEntry) => {
+    await api.delete(`/pages/${pageId}/acl/${entry.id}`)
+    setAcl(a => a.filter(e => e.id !== entry.id))
+  }
+
+  const addOptions = addType === 'group'
+    ? groups.filter(g => !acl.some(a => a.subject_type === 'group' && a.subject_id === g.id))
+    : users.filter(u => !acl.some(a => a.subject_type === 'user' && a.subject_id === u.id))
+
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog" style={{ width: 'min(560px, 100%)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <div className="dialog-title">Manage access</div>
+          <button className="btn btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => setMatrixMode(m => !m)}>
+            {matrixMode ? 'Switch to list' : 'Switch to matrix'}
+          </button>
+        </div>
+
+        {!matrixMode ? (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
+              {acl.map(entry => (
+                <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <span>{entry.subject_type === 'group' ? '👥' : '👤'}</span>
+                  <span>{subjectLabel(entry)}</span>
+                  <span className="tag tag-outline" style={{ marginLeft: 'auto' }}>{entry.page_role}</span>
+                  <button className="btn btn-ghost btn-icon" style={{ width: 26, height: 26 }} onClick={() => handleRemove(entry)}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              ))}
+              {acl.length === 0 && <p className="text-muted" style={{ fontSize: 12.5, margin: 0 }}>No one has access yet.</p>}
+            </div>
+            <div className="hr" />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <select className="input" style={{ width: 90 }} value={addType} onChange={e => { setAddType(e.target.value as 'group' | 'user'); setAddId('') }}>
+                <option value="group">Group</option>
+                <option value="user">Person</option>
+              </select>
+              <select className="input" style={{ flex: 1 }} value={addId} onChange={e => setAddId(e.target.value)}>
+                <option value="">Choose…</option>
+                {addOptions.map(o => <option key={o.id} value={o.id}>{'name' in o ? o.name : (o as User).display_name}</option>)}
+              </select>
+              <select className="input" style={{ width: 90 }} value={addRole} onChange={e => setAddRole(e.target.value as typeof addRole)}>
+                <option value="Viewer">Viewer</option>
+                <option value="Editor">Editor</option>
+                <option value="Owner">Owner</option>
+              </select>
+              <button className="btn btn-secondary" onClick={handleAdd}>Add</button>
+            </div>
+          </>
+        ) : (
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+            <table className="table">
+              <thead><tr><th>Subject</th><th>None</th><th>Viewer</th><th>Editor</th><th>Owner</th></tr></thead>
+              <tbody>
+                {[...groups.map(g => ({ type: 'group' as const, id: g.id, label: g.name })), ...users.map(u => ({ type: 'user' as const, id: u.id, label: `${u.display_name}` }))].map(subject => {
+                  const entry = acl.find(a => a.subject_type === subject.type && a.subject_id === subject.id)
+                  const currentRole = entry?.page_role || 'None'
+                  const setRole = async (role: string) => {
+                    if (role === 'None') {
+                      if (entry) await handleRemove(entry)
+                    } else if (entry) {
+                      // update via upsert
+                      await api.post(`/pages/${pageId}/acl`, { subject_type: subject.type, subject_id: subject.id, page_role: role })
+                    } else {
+                      await api.post(`/pages/${pageId}/acl`, { subject_type: subject.type, subject_id: subject.id, page_role: role })
+                    }
+                    const r = await api.get(`/pages/${pageId}/acl`)
+                    setAcl(r.data.data || [])
+                  }
+                  return (
+                    <tr key={`${subject.type}-${subject.id}`}>
+                      <td>{subject.type === 'group' ? '👥' : '👤'} {subject.label}</td>
+                      {['None', 'Viewer', 'Editor', 'Owner'].map(role => (
+                        <td key={role} style={{ textAlign: 'center' }}>
+                          <label className="radio" style={{ justifyContent: 'center' }}>
+                            <input type="radio" name={`acl-${subject.type}-${subject.id}`} checked={currentRole === role} onChange={() => setRole(role)} />
+                            <span className="dot" />
+                          </label>
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="dialog-actions">
+          <button className="btn btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function AdminPages({ mode }: Props) {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-
   const [pages, setPages] = useState<Page[]>([])
-  const editing = mode === 'create' || mode === 'edit'
-  const [form, setForm] = useState<{
-    title: string; page_type: 'data_table' | 'form'
-    config: PageConfig
-  }>({
-    title: '',
-    page_type: 'data_table',
-    config: { url: '', method: 'GET', auth_header_name: '', auth_header_value: '', columns: [], fields: [] },
-  })
-  const [error, setError] = useState('')
-  const [ok, setOk] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Page | null>(null)
+  const [showAcl, setShowAcl] = useState<number | null>(null)
 
-  const loadPages = async () => {
-    const res = await api.get('/pages')
-    setPages(res.data.data || [])
-  }
+  // YAML editor state
+  const [chooseType, setChooseType] = useState(false)
+  const [yamlText, setYamlText] = useState('')
+  const [stage, setStage] = useState<ConfigStage>('edit')
+  const [yamlErrors, setYamlErrors] = useState<{ line: number; message: string }[]>([])
+  const [parsedConfig, setParsedConfig] = useState<ParsedConfig | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  const loadPageConfig = async (pageId: string) => {
-    const res = await api.get(`/pages/${pageId}/config`)
-    setForm({
-      title: res.data.title,
-      page_type: res.data.page_type,
-      config: res.data.config,
-    })
-  }
+  const loadPages = () => api.get('/pages').then(r => setPages(r.data.data || []))
 
   useEffect(() => { loadPages() }, [])
+
   useEffect(() => {
-    if (mode === 'edit' && id) loadPageConfig(id)
+    if (mode === 'edit' && id) {
+      api.get(`/pages/${id}/config`).then(r => {
+        // Try to reconstruct yaml from config object
+        const cfg = r.data
+        const yaml = configToYaml(cfg)
+        setYamlText(yaml)
+        setStage('edit')
+      })
+    }
   }, [mode, id])
 
-  const setF = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  const configToYaml = (cfg: Record<string, unknown>): string => {
+    const lines: string[] = []
+    const str = (k: string, v: unknown) => `${k}: ${v}`
+    if (cfg.title) lines.push(str('title', cfg.title))
+    if (cfg.description) lines.push(str('description', cfg.description))
+    if (cfg.group) lines.push(str('group', cfg.group))
+    lines.push(str('page_type', cfg.page_type || 'data_table'))
+    const config = (cfg.config as Record<string, unknown>) || {}
+    if (config.method) lines.push(str('method', config.method))
+    if (config.url) lines.push(str('endpoint', config.url))
+    if (config.auth_header_name && config.auth_header_value) {
+      lines.push('authHeaders:')
+      lines.push(`  ${config.auth_header_name}: ${config.auth_header_value}`)
+    }
+    const cols = config.columns as unknown[]
+    if (cols?.length) {
+      lines.push('columns:')
+      cols.forEach((c: unknown) => {
+        const col = c as { key: string; label: string }
+        lines.push(`  - key: ${col.key}`)
+        lines.push(`    label: ${col.label}`)
+      })
+    }
+    const flds = config.fields as unknown[]
+    if (flds?.length) {
+      lines.push('fields:')
+      flds.forEach((f: unknown) => {
+        const fld = f as { key: string; label: string; type?: string; required?: boolean }
+        lines.push(`  - key: ${fld.key}`)
+        lines.push(`    label: ${fld.label}`)
+        if (fld.type) lines.push(`    type: ${fld.type}`)
+        if (fld.required) lines.push(`    required: true`)
+      })
+    }
+    return lines.join('\n')
+  }
 
-  const setCfg = (k: keyof PageConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, config: { ...f.config, [k]: e.target.value } }))
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setOk('')
-    setLoading(true)
-    try {
-      if (mode === 'edit' && id) {
-        await api.put(`/pages/${id}/config`, form)
-        setOk('Page updated.')
-      } else {
-        const res = await api.post('/pages', form)
-        navigate(`/admin/pages/${res.data.id}/edit`, { replace: true })
-        setOk('Page created.')
-      }
-      loadPages()
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } }
-      setError(e.response?.data?.error || 'Failed to save page')
-    } finally {
-      setLoading(false)
+  const handleValidate = () => {
+    const { config, errors } = parseYaml(yamlText)
+    setYamlErrors(errors)
+    if (errors.length === 0 && config) {
+      setParsedConfig(config)
+      setStage('preview')
     }
   }
 
-  const handleDelete = async (page: Page) => {
-    if (!window.confirm(`Delete page "${page.title}"?`)) return
-    await api.delete(`/pages/${page.id}`)
-    loadPages()
+  const handleSave = async () => {
+    if (!parsedConfig) return
+    setSaving(true)
+    try {
+      const pageType: PageType = (parsedConfig.page_type === 'form' ? 'form' : 'data_table')
+      const payload = {
+        title: parsedConfig.title,
+        description: parsedConfig.description,
+        group: parsedConfig.group,
+        page_type: pageType,
+        config: {
+          url: parsedConfig.endpoint || parsedConfig.url || '',
+          method: parsedConfig.method || 'GET',
+          auth_header_name: parsedConfig.authHeaders ? Object.keys(parsedConfig.authHeaders)[0] : undefined,
+          auth_header_value: parsedConfig.authHeaders ? Object.values(parsedConfig.authHeaders)[0] : undefined,
+          columns: parsedConfig.columns,
+          fields: parsedConfig.fields,
+          writeback: parsedConfig.writeback,
+        },
+      }
+      if (mode === 'edit' && id) {
+        await api.put(`/pages/${id}/config`, payload)
+      } else {
+        await api.post('/pages', payload)
+      }
+      navigate('/admin/pages')
+      loadPages()
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } }
+      alert(e.response?.data?.error || 'Failed to save page')
+    } finally { setSaving(false) }
   }
 
-  // Columns editor helpers
-  const addColumn = () => setForm((f) => ({
-    ...f, config: { ...f.config, columns: [...(f.config.columns || []), { key: '', label: '', type: 'text' }] }
-  }))
-  const setCol = (i: number, k: keyof ColumnDef, v: string) => setForm((f) => {
-    const cols = [...(f.config.columns || [])]
-    cols[i] = { ...cols[i], [k]: v }
-    return { ...f, config: { ...f.config, columns: cols } }
-  })
-  const removeCol = (i: number) => setForm((f) => {
-    const cols = (f.config.columns || []).filter((_, idx) => idx !== i)
-    return { ...f, config: { ...f.config, columns: cols } }
-  })
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    await api.delete(`/pages/${deleteTarget.id}`)
+    setDeleteTarget(null); loadPages()
+  }
 
-  // Fields editor helpers
-  const addField = () => setForm((f) => ({
-    ...f, config: { ...f.config, fields: [...(f.config.fields || []), { key: '', label: '', type: 'text', required: false }] }
-  }))
-  const setField = (i: number, k: keyof FormField, v: string | boolean) => setForm((f) => {
-    const flds = [...(f.config.fields || [])]
-    flds[i] = { ...flds[i], [k]: v }
-    return { ...f, config: { ...f.config, fields: flds } }
-  })
-  const removeField = (i: number) => setForm((f) => {
-    const flds = (f.config.fields || []).filter((_, idx) => idx !== i)
-    return { ...f, config: { ...f.config, fields: flds } }
-  })
+  const isTableConfig = parsedConfig?.page_type !== 'form'
 
-  if (!editing) {
+  // ── List view ──
+  if (!mode) {
     return (
-      <div>
-        <div style={S.hdr}>
-          <h2 style={S.title}>Pages</h2>
-          <button style={S.btn} onClick={() => navigate('/admin/pages/new')}>+ New page</button>
+      <div style={{ maxWidth: 1040 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+          <h2 style={{ margin: 0 }}>Pages</h2>
+          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setChooseType(true)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New page
+          </button>
         </div>
-        <div style={S.tableWrap}>
-          <table style={S.table}>
-            <thead>
-              <tr>
-                {['Title', 'Type', 'Created', 'Actions'].map((h) => <th key={h} style={S.th}>{h}</th>)}
-              </tr>
-            </thead>
+        <p className="text-muted" style={{ fontSize: 13.5, marginBottom: 'var(--space-4)' }}>{pages.length} page{pages.length !== 1 ? 's' : ''} in this workspace.</p>
+
+        <div className="card elev-sm" style={{ padding: 0 }}>
+          <table className="table">
+            <thead><tr><th>Title</th><th>Type</th><th>Group</th><th>Created</th><th></th></tr></thead>
             <tbody>
               {pages.length === 0 && (
-                <tr><td colSpan={4} style={{ ...S.td, textAlign: 'center', color: '#94a3b8', padding: 32 }}>No pages yet.</td></tr>
+                <tr><td colSpan={5} style={{ padding: 'var(--space-4)' }}><span className="text-muted" style={{ fontSize: 13 }}>No pages yet.</span></td></tr>
               )}
-              {pages.map((p) => (
+              {pages.map(p => (
                 <tr key={p.id}>
-                  <td style={S.td}>{p.title}</td>
-                  <td style={S.td}>{p.page_type}</td>
-                  <td style={S.td}>{p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td>
-                  <td style={S.td}>
-                    <button style={S.smBtn} onClick={() => navigate(`/admin/pages/${p.id}/edit`)}>Edit</button>
-                    <button style={S.dangerBtn} onClick={() => handleDelete(p)}>Delete</button>
+                  <td style={{ fontWeight: 500 }}>{p.title}</td>
+                  <td className="text-muted">{p.page_type === 'form' ? 'Form' : 'Data Table'}</td>
+                  <td className="text-muted">{p.group || '—'}</td>
+                  <td className="text-muted">{p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => navigate(`/admin/pages/${p.id}/edit`)}>Edit config</button>{' '}
+                    <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowAcl(p.id)}>Access</button>{' '}
+                    <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => setDeleteTarget(p)}>Delete</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {chooseType && (
+          <div className="dialog-backdrop" onClick={() => setChooseType(false)}>
+            <div className="dialog" onClick={e => e.stopPropagation()}>
+              <div className="dialog-title">New page</div>
+              <div className="dialog-body">Choose the page type. Both are config-driven via YAML — no visual builder in V1.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn btn-secondary btn-block" onClick={() => { navigate('/admin/pages/new?type=data_table'); setChooseType(false) }}>Data Table Page</button>
+                <button className="btn btn-secondary btn-block" onClick={() => { navigate('/admin/pages/new?type=form'); setChooseType(false) }}>Form Page</button>
+              </div>
+              <div className="dialog-actions"><button className="btn btn-ghost" onClick={() => setChooseType(false)}>Cancel</button></div>
+            </div>
+          </div>
+        )}
+
+        {deleteTarget && (
+          <div className="dialog-backdrop" onClick={() => setDeleteTarget(null)}>
+            <div className="dialog" onClick={e => e.stopPropagation()}>
+              <div className="dialog-title">Delete page</div>
+              <div className="dialog-body">Deleting <strong>{deleteTarget.title}</strong> is permanent and removes it for everyone with access.</div>
+              <div className="dialog-actions">
+                <button className="btn btn-ghost" onClick={() => setDeleteTarget(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleDelete}>Delete page</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAcl !== null && <ACLDialog pageId={showAcl} onClose={() => setShowAcl(null)} />}
       </div>
     )
   }
 
+  // ── Create / Edit view ──
+  const isNew = mode === 'create'
+  const pageTypeFromQuery = new URLSearchParams(window.location.search).get('type') as PageType | null
+
+  const initYaml = () => {
+    if (yamlText) return
+    if (pageTypeFromQuery === 'form') setYamlText(DEFAULT_FORM_YAML)
+    else setYamlText(DEFAULT_TABLE_YAML)
+  }
+  if (!yamlText && isNew) initYaml()
+
   return (
-    <div>
-      <div style={S.hdr}>
-        <h2 style={S.title}>{mode === 'edit' ? 'Edit page' : 'New page'}</h2>
-        <button style={S.cancel} onClick={() => navigate('/admin/pages')}>← Back to pages</button>
-      </div>
+    <div style={{ maxWidth: 1040 }}>
+      <h2 style={{ marginBottom: 2 }}>{isNew ? 'New page' : 'Edit page config'}</h2>
+      <p className="text-muted" style={{ fontSize: 13.5, marginBottom: 'var(--space-5)' }}>
+        {isNew ? 'Define the page in YAML, then validate and preview before saving.' : 'Edit the YAML config, then validate and preview before saving.'}
+      </p>
 
-      {error && <p style={S.err}>{error}</p>}
-      {ok && <p style={S.ok}>{ok}</p>}
-
-      <form style={S.form} onSubmit={handleSubmit}>
-        <label style={S.label}>Page title</label>
-        <input style={S.input} value={form.title} onChange={setF('title')} required />
-
-        <label style={S.label}>Page type</label>
-        <select style={S.select} value={form.page_type}
-          onChange={(e) => setForm((f) => ({ ...f, page_type: e.target.value as 'data_table' | 'form' }))}>
-          <option value="data_table">Data Table</option>
-          <option value="form">Form</option>
-        </select>
-
-        <div style={{ marginTop: 20, fontWeight: 600, fontSize: 14, color: '#374151' }}>Data Source (REST API)</div>
-        <label style={S.label}>URL</label>
-        <input style={S.input} value={form.config.url} onChange={setCfg('url')} placeholder="https://api.example.com/data" required />
-
-        <label style={S.label}>HTTP method</label>
-        <select style={S.select} value={form.config.method}
-          onChange={(e) => setForm((f) => ({ ...f, config: { ...f.config, method: e.target.value } }))}>
-          {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => <option key={m}>{m}</option>)}
-        </select>
-
-        <label style={S.label}>Auth header name <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optional)</span></label>
-        <input style={S.input} value={form.config.auth_header_name || ''} onChange={setCfg('auth_header_name')} placeholder="Authorization" />
-
-        <label style={S.label}>Auth header value <span style={{ fontWeight: 400, color: '#94a3b8' }}>(stored encrypted)</span></label>
-        <input style={S.input} value={form.config.auth_header_value || ''} onChange={setCfg('auth_header_value')}
-          placeholder={mode === 'edit' ? '[REDACTED]' : 'Bearer <token>'} />
-
-        {/* Column definitions for Data Table pages */}
-        {form.page_type === 'data_table' && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>Column definitions <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 12 }}>(leave empty to auto-detect)</span></div>
-            {(form.config.columns || []).map((col, i) => (
-              <div key={i} style={{ ...S.subSection, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input style={{ ...S.input, marginBottom: 0 }} placeholder="key" value={col.key} onChange={(e) => setCol(i, 'key', e.target.value)} />
-                <input style={{ ...S.input, marginBottom: 0 }} placeholder="Label" value={col.label} onChange={(e) => setCol(i, 'label', e.target.value)} />
-                <select style={{ ...S.select, marginBottom: 0, width: 100 }} value={col.type || 'text'} onChange={(e) => setCol(i, 'type', e.target.value)}>
-                  {['text', 'number', 'date', 'boolean'].map((t) => <option key={t}>{t}</option>)}
-                </select>
-                <button type="button" style={S.dangerBtn} onClick={() => removeCol(i)}>✕</button>
+      {stage === 'edit' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-4)', alignItems: 'start' }}>
+          <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 'var(--space-2) var(--space-4)', borderBottom: '1px solid var(--color-divider)' }}>
+              <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'color-mix(in srgb, var(--color-text) 55%, transparent)' }}>page.yaml</span>
+              <span className="tag tag-outline" style={{ marginLeft: 'auto' }}>YAML</span>
+            </div>
+            <textarea
+              className="input"
+              style={{ width: '100%', minHeight: 440, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, lineHeight: 1.7, border: 'none', borderRadius: 0, resize: 'vertical', background: 'var(--color-bg)' }}
+              value={yamlText}
+              onChange={e => setYamlText(e.target.value)}
+              spellCheck={false}
+            />
+            {yamlErrors.length > 0 && (
+              <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-divider)', background: 'var(--color-neutral-800)' }}>
+                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6 }}>{yamlErrors.length} issue(s) — fix before previewing</div>
+                {yamlErrors.map((err, i) => (
+                  <div key={i} style={{ fontSize: 12, display: 'flex', gap: 8, marginBottom: 3 }}>
+                    <span className="text-muted" style={{ whiteSpace: 'nowrap' }}>Line {err.line}</span>
+                    {err.message}
+                  </div>
+                ))}
               </div>
-            ))}
-            <button type="button" style={S.addBtn} onClick={addColumn}>+ Add column</button>
+            )}
+            <div style={{ display: 'flex', gap: 8, padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-divider)' }}>
+              <button className="btn btn-primary" onClick={handleValidate}>Validate & preview</button>
+              <button className="btn btn-ghost" onClick={() => navigate('/admin/pages')}>Cancel</button>
+            </div>
           </div>
-        )}
 
-        {/* Field definitions for Form pages */}
-        {form.page_type === 'form' && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>Form fields</div>
-            {(form.config.fields || []).map((field, i) => (
-              <div key={i} style={{ ...S.subSection, display: 'flex', gap: 8, flexWrap: 'wrap' as const, alignItems: 'center' }}>
-                <input style={{ ...S.input, marginBottom: 0, flex: '1 1 100px' }} placeholder="key" value={field.key} onChange={(e) => setField(i, 'key', e.target.value)} />
-                <input style={{ ...S.input, marginBottom: 0, flex: '1 1 150px' }} placeholder="Label" value={field.label} onChange={(e) => setField(i, 'label', e.target.value)} />
-                <select style={{ ...S.select, marginBottom: 0, width: 100 }} value={field.type} onChange={(e) => setField(i, 'type', e.target.value)}>
-                  {['text', 'number', 'email', 'select', 'textarea'].map((t) => <option key={t}>{t}</option>)}
-                </select>
-                <label style={{ fontSize: 12, whiteSpace: 'nowrap' as const }}>
-                  <input type="checkbox" checked={!!field.required} onChange={(e) => setField(i, 'required', e.target.checked)} style={{ marginRight: 4 }} />
-                  Required
-                </label>
-                <button type="button" style={S.dangerBtn} onClick={() => removeField(i)}>✕</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {!isNew && id && (
+              <div className="card" style={{ padding: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                  <h4 style={{ margin: 0 }}>Access</h4>
+                  <button className="btn btn-ghost" style={{ marginLeft: 'auto', fontSize: 12.5 }} onClick={() => setShowAcl(Number(id))}>Manage</button>
+                </div>
+                <p className="text-muted" style={{ fontSize: 12.5, margin: 0 }}>Manage who can view or edit this page.</p>
               </div>
-            ))}
-            <button type="button" style={S.addBtn} onClick={addField}>+ Add field</button>
+            )}
+            <div className="card" style={{ padding: 'var(--space-4)' }}>
+              <h4 style={{ margin: '0 0 8px', fontSize: 13 }}>Schema reference</h4>
+              <div className="text-muted" style={{ display: 'flex', flexDirection: 'column', gap: 4, lineHeight: 1.6, fontSize: 12 }}>
+                <span>title, description, group</span>
+                <span>page_type: data_table | form</span>
+                <span>method, endpoint, authHeaders</span>
+                {pageTypeFromQuery !== 'form'
+                  ? <><span>columns: key, label, sortable, editable</span><span>writeback: enabled, method, endpoint</span></>
+                  : <span>fields: key, label, type, required, sensitive, options</span>
+                }
+              </div>
+            </div>
           </div>
-        )}
-
-        <div style={S.row}>
-          <button style={S.save} type="submit" disabled={loading}>
-            {loading ? 'Saving…' : mode === 'edit' ? 'Save changes' : 'Create page'}
-          </button>
         </div>
-      </form>
+      )}
+
+      {stage === 'preview' && parsedConfig && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 'var(--space-4)' }}>
+            <button className="btn btn-secondary" onClick={() => setStage('edit')}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              Back to editor
+            </button>
+            <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save page'}
+            </button>
+          </div>
+          <div style={{ background: 'var(--color-neutral-800)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', fontSize: 12.5, marginBottom: 'var(--space-4)' }}>
+            This is what a user with access will see.{isNew && ' Sample data shown until this is connected to a live endpoint.'}
+          </div>
+
+          <div className="card" style={{ padding: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+            <h2 style={{ margin: '0 0 4px' }}>{parsedConfig.title}</h2>
+            <p className="text-muted" style={{ fontSize: 13.5, margin: 0 }}>{parsedConfig.description}</p>
+          </div>
+
+          {isTableConfig ? (
+            <div className="card elev-sm" style={{ padding: 0 }}>
+              <table className="table">
+                <thead><tr>
+                  {(parsedConfig.columns || [{ key: 'col1', label: 'Column 1' }, { key: 'col2', label: 'Column 2' }]).map((c: { key: string; label: string }) => <th key={c.key}>{c.label}</th>)}
+                </tr></thead>
+                <tbody>
+                  {[1, 2, 3].map(i => (
+                    <tr key={i}>
+                      {(parsedConfig.columns || [{ key: 'col1' }, { key: 'col2' }]).map((c: { key: string }) => (
+                        <td key={c.key} className="text-muted">Sample data {i}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+              {(parsedConfig.fields || []).map((f: { key: string; label: string; type?: string }) => (
+                <div key={f.key} className="field">
+                  <label>{f.label}</label>
+                  <input className="input" disabled placeholder={`Enter ${f.label.toLowerCase()}…`} />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {showAcl !== null && <ACLDialog pageId={showAcl} onClose={() => setShowAcl(null)} />}
     </div>
   )
 }

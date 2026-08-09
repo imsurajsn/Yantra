@@ -3,84 +3,71 @@ import { useNavigate } from 'react-router-dom'
 import api from '@/api/client'
 import { useAuth } from '@/store/auth'
 
-const S = {
-  page: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' } as const,
-  card: { background: '#fff', borderRadius: 12, padding: 40, width: '100%', maxWidth: 420, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' } as const,
-  title: { fontSize: 22, fontWeight: 700, marginBottom: 6, color: '#1e293b' } as const,
-  sub: { fontSize: 14, color: '#64748b', marginBottom: 28 } as const,
-  label: { display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' } as const,
-  input: { width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, outline: 'none', marginBottom: 16 } as const,
-  btn: { width: '100%', padding: '10px 0', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, fontSize: 15, fontWeight: 600, cursor: 'pointer' } as const,
-  err: { color: '#dc2626', fontSize: 13, marginBottom: 12 } as const,
-  ok: { color: '#16a34a', fontSize: 13, marginBottom: 12 } as const,
-}
-
 export default function ChangePassword() {
   const navigate = useNavigate()
-  const { login, user, token } = useAuth()
-  const [form, setForm] = useState({ current_password: '', new_password: '', confirm: '' })
+  const { login, user } = useAuth()
+  const forced = user?.must_change_password ?? false
+
+  const [current, setCurrent] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
-  const [ok, setOk] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    setOk('')
-    if (form.new_password !== form.confirm) { setError('Passwords do not match'); return }
-    if (form.new_password.length < 8) { setError('Password must be at least 8 characters'); return }
-    setLoading(true)
+    if (newPw !== confirm) { setError('Passwords do not match.'); return }
+    if (newPw.length < 8) { setError('Password must be at least 8 characters.'); return }
+    setError(''); setLoading(true)
     try {
       const res = await api.post('/auth/change-password', {
-        current_password: form.current_password,
-        new_password: form.new_password,
+        current_password: forced ? '' : current,
+        new_password: newPw,
       })
-      // Server issues a new token; update stored session
-      if (res.data.token && user) {
-        login(res.data.token, { ...user, must_change_password: false })
-      }
-      setOk('Password changed successfully.')
-      setTimeout(() => navigate('/', { replace: true }), 1000)
+      if (res.data.token && user) login(res.data.token, { ...user, must_change_password: false })
+      navigate('/', { replace: true })
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } }
-      setError(e.response?.data?.error || 'Failed to change password')
-    } finally {
-      setLoading(false)
-    }
+      setError(e.response?.data?.error || 'Failed to change password.')
+    } finally { setLoading(false) }
   }
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
-
-  const isForced = user?.must_change_password
-
   return (
-    <div style={S.page}>
-      <div style={S.card}>
-        <h1 style={S.title}>{isForced ? 'Set your password' : 'Change password'}</h1>
-        <p style={S.sub}>
-          {isForced
-            ? 'Your account requires a password change before you can continue.'
-            : 'Choose a new password for your account.'}
+    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div className="card elev-md" style={{ width: 'min(420px, 100%)', padding: 'var(--space-8)', display: 'flex', flexDirection: 'column' }}>
+        {forced && (
+          <div className="tag tag-outline" style={{ alignSelf: 'flex-start', marginBottom: 'var(--space-3)' }}>FIRST LOGIN</div>
+        )}
+        <h2>Set a new password</h2>
+        <p className="text-muted" style={{ fontSize: 13, marginBottom: 'var(--space-4)' }}>
+          {forced
+            ? 'For your security, replace the temporary password before continuing.'
+            : 'Choose a strong password for your account.'}
         </p>
-        {error && <p style={S.err}>{error}</p>}
-        {ok && <p style={S.ok}>{ok}</p>}
-        <form onSubmit={handleSubmit}>
-          <label style={S.label}>Current password</label>
-          <input style={S.input} type="password" value={form.current_password} onChange={set('current_password')} required autoFocus />
-          <label style={S.label}>New password</label>
-          <input style={S.input} type="password" value={form.new_password} onChange={set('new_password')} required minLength={8} />
-          <label style={S.label}>Confirm new password</label>
-          <input style={S.input} type="password" value={form.confirm} onChange={set('confirm')} required />
-          <button style={S.btn} type="submit" disabled={loading}>
-            {loading ? 'Saving…' : 'Change password'}
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          {!forced && (
+            <div className="field">
+              <label>Current password</label>
+              <input className="input" type="password" value={current} onChange={e => setCurrent(e.target.value)} required />
+            </div>
+          )}
+          <div className="field">
+            <label>New password</label>
+            <input className="input" type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Minimum 8 characters" required />
+          </div>
+          <div className="field" style={{ marginBottom: 'var(--space-1)' }}>
+            <label>Confirm new password</label>
+            <input className="input" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+          </div>
+          {error && (
+            <div style={{ background: 'var(--color-neutral-800)', borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-3)', fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+          <button className="btn btn-primary btn-block" type="submit" disabled={loading}>
+            {loading ? 'Setting…' : 'Set password & continue'}
           </button>
         </form>
-        {!isForced && token && (
-          <p style={{ marginTop: 16, fontSize: 13, color: '#64748b', textAlign: 'center' }}>
-            <a href="/" style={{ color: '#3b82f6' }}>← Back</a>
-          </p>
-        )}
       </div>
     </div>
   )

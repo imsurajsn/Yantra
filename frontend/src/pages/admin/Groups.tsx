@@ -1,183 +1,189 @@
 import { useEffect, useState } from 'react'
 import api from '@/api/client'
-import type { Group, GroupMember } from '@/types'
+import type { Group, GroupMember, User } from '@/types'
 
-const S = {
-  hdr: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 } as const,
-  title: { fontSize: 20, fontWeight: 600, color: '#1e293b' } as const,
-  btn: { padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  smBtn: { padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#475569', marginRight: 4 } as const,
-  dangerBtn: { padding: '4px 10px', border: '1px solid #fecaca', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#dc2626' } as const,
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 } as const,
-  card: { background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0', padding: 20 } as const,
-  cardTitle: { fontWeight: 600, fontSize: 15, marginBottom: 12, color: '#1e293b' } as const,
-  memberRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: 13 } as const,
-  modal: { position: 'fixed' as const, inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-  mcard: { background: '#fff', borderRadius: 10, padding: 28, width: 400, maxWidth: '90vw' } as const,
-  label: { display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151', marginTop: 12 } as const,
-  input: { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14 } as const,
-  select: { width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14 } as const,
-  row: { display: 'flex', gap: 8, marginTop: 16 } as const,
-  save: { flex: 1, padding: '9px 0', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  cancel: { flex: 1, padding: '9px 0', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 } as const,
-  err: { color: '#dc2626', fontSize: 13, marginTop: 8 } as const,
+function initials(name: string) {
+  return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+}
+
+function Dialog({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog" onClick={e => e.stopPropagation()}>
+        <div className="dialog-title">{title}</div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+interface GroupState extends Group {
+  members: GroupMember[]
+  expanded: boolean
+  addMemberUserId: string
 }
 
 export default function AdminGroups() {
-  const [groups, setGroups] = useState<Group[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
-  const [members, setMembers] = useState<GroupMember[]>([])
+  const [groups, setGroups] = useState<GroupState[]>([])
+  const [allUsers, setAllUsers] = useState<User[]>([])
   const [showCreate, setShowCreate] = useState(false)
-  const [showAddMember, setShowAddMember] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
-  const [memberForm, setMemberForm] = useState({ user_id: '', group_role: 'Group Member' })
   const [error, setError] = useState('')
 
-  const loadGroups = async () => {
-    const res = await api.get('/groups')
-    setGroups(res.data.data)
-  }
-  const loadMembers = async (groupId: number) => {
-    const res = await api.get(`/groups/${groupId}/members`)
-    setMembers(res.data.data)
+  const loadAll = async () => {
+    const [gRes, uRes] = await Promise.all([api.get('/groups'), api.get('/admin/users')])
+    const grps: Group[] = gRes.data.data || []
+    setAllUsers(uRes.data.data || [])
+    const withMembers = await Promise.all(grps.map(async g => {
+      const mRes = await api.get(`/groups/${g.id}/members`)
+      return { ...g, members: mRes.data.data || [], expanded: false, addMemberUserId: '' }
+    }))
+    setGroups(withMembers)
   }
 
-  useEffect(() => { loadGroups() }, [])
-  useEffect(() => { if (selectedGroup) loadMembers(selectedGroup.id) }, [selectedGroup])
+  useEffect(() => { loadAll() }, [])
 
-  const handleCreateGroup = async (e: React.FormEvent) => {
+  const toggleExpand = (id: number) =>
+    setGroups(gs => gs.map(g => g.id === id ? { ...g, expanded: !g.expanded } : g))
+
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     try {
       await api.post('/groups', { name: newGroupName })
-      setShowCreate(false)
-      setNewGroupName('')
-      loadGroups()
+      setShowCreate(false); setNewGroupName('')
+      loadAll()
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } }
       setError(e.response?.data?.error || 'Failed to create group')
     }
   }
 
-  const handleAddMember = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    if (!selectedGroup) return
-    try {
-      await api.post(`/groups/${selectedGroup.id}/members`, {
-        user_id: Number(memberForm.user_id),
-        group_role: memberForm.group_role,
-      })
-      setShowAddMember(false)
-      loadMembers(selectedGroup.id)
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } }
-      setError(e.response?.data?.error || 'Failed to add member')
-    }
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    await api.delete(`/groups/${deleteTarget.id}`)
+    setDeleteTarget(null); loadAll()
   }
 
-  const handleRemoveMember = async (userId: number) => {
-    if (!selectedGroup) return
-    await api.delete(`/groups/${selectedGroup.id}/members/${userId}`)
-    loadMembers(selectedGroup.id)
+  const handleAddMember = async (groupId: number, userId: string) => {
+    if (!userId) return
+    await api.post(`/groups/${groupId}/members`, { user_id: Number(userId), group_role: 'Group Member' })
+    setGroups(gs => gs.map(g => g.id === groupId ? { ...g, addMemberUserId: '' } : g))
+    loadAll()
   }
 
-  const handleDeleteGroup = async (group: Group) => {
-    if (!window.confirm(`Delete group "${group.name}"?`)) return
-    await api.delete(`/groups/${group.id}`)
-    if (selectedGroup?.id === group.id) setSelectedGroup(null)
-    loadGroups()
+  const handleRemoveMember = async (groupId: number, userId: number) => {
+    await api.delete(`/groups/${groupId}/members/${userId}`)
+    loadAll()
+  }
+
+  const addableUsers = (g: GroupState) => {
+    const memberIds = new Set(g.members.map(m => m.user_id))
+    return allUsers.filter(u => !memberIds.has(u.id))
+  }
+
+  const adminName = (g: GroupState) => {
+    const admin = g.members.find(m => m.group_role === 'Group Admin')
+    return admin?.display_name || '—'
   }
 
   return (
-    <div>
-      <div style={S.hdr}>
-        <h2 style={S.title}>Groups</h2>
-        <button style={S.btn} onClick={() => { setShowCreate(true); setError('') }}>+ New group</button>
+    <div style={{ maxWidth: 820 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+        <h2 style={{ margin: 0 }}>Groups</h2>
+        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => { setShowCreate(true); setError('') }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New group
+        </button>
       </div>
+      <p className="text-muted" style={{ fontSize: 13.5, marginBottom: 'var(--space-4)' }}>Members inherit page access granted to their groups.</p>
 
-      <div style={{ display: 'flex', gap: 20 }}>
-        {/* Group list */}
-        <div style={{ width: 260 }}>
-          {groups.length === 0 && <p style={{ color: '#94a3b8', fontSize: 14 }}>No groups yet.</p>}
-          {groups.map((g) => (
-            <div key={g.id} style={{
-              ...S.card,
-              marginBottom: 8,
-              cursor: 'pointer',
-              borderColor: selectedGroup?.id === g.id ? '#3b82f6' : '#e2e8f0',
-            }} onClick={() => setSelectedGroup(g)}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 500, fontSize: 14 }}>{g.name}</span>
-                <button style={S.dangerBtn} onClick={(e) => { e.stopPropagation(); handleDeleteGroup(g) }}>Del</button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Members panel */}
-        {selectedGroup && (
-          <div style={{ flex: 1, ...S.card }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={S.cardTitle}>{selectedGroup.name} — Members</h3>
-              <button style={S.smBtn} onClick={() => { setShowAddMember(true); setError('') }}>+ Add member</button>
-            </div>
-            {members.length === 0 && <p style={{ fontSize: 13, color: '#94a3b8' }}>No members.</p>}
-            {members.map((m) => (
-              <div key={m.user_id} style={S.memberRow}>
-                <div>
-                  <span style={{ fontWeight: 500 }}>{m.display_name}</span>
-                  <span style={{ color: '#64748b', marginLeft: 8 }}>{m.email}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>{m.group_role}</span>
-                  <button style={S.dangerBtn} onClick={() => handleRemoveMember(m.user_id)}>Remove</button>
-                </div>
-              </div>
-            ))}
-          </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {groups.length === 0 && (
+          <p className="text-muted" style={{ fontSize: 13 }}>No groups yet.</p>
         )}
+        {groups.map(g => (
+          <div key={g.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Header row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'var(--space-3) var(--space-4)', cursor: 'pointer' }}
+              onClick={() => toggleExpand(g.id)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transition: 'transform 0.15s', transform: g.expanded ? 'rotate(90deg)' : 'none' }}>
+                <polyline points="9 6 15 12 9 18"/>
+              </svg>
+              <strong style={{ fontWeight: 500 }}>{g.name}</strong>
+              <span className="text-muted" style={{ fontSize: 12.5 }}>admin: {adminName(g)}</span>
+              <span className="tag tag-neutral" style={{ marginLeft: 'auto' }}>{g.members.length} member{g.members.length !== 1 ? 's' : ''}</span>
+              <button className="btn btn-ghost" style={{ fontSize: 12 }}
+                onClick={e => { e.stopPropagation(); setDeleteTarget(g) }}>Delete</button>
+            </div>
+
+            {/* Expanded body */}
+            {g.expanded && (
+              <div style={{ padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--color-divider)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {g.members.length === 0 && (
+                  <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>No members yet.</p>
+                )}
+                {g.members.map(m => (
+                  <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: '50%',
+                      background: 'var(--color-accent-800)', color: 'var(--color-accent-100)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, flexShrink: 0,
+                    }}>{initials(m.display_name)}</div>
+                    <span>{m.display_name}</span>
+                    <span className="text-muted">{m.email}</span>
+                    {m.group_role === 'Group Admin' && <span className="tag tag-outline">Group Admin</span>}
+                    <button className="btn btn-ghost" style={{ marginLeft: 'auto', fontSize: 12 }}
+                      onClick={() => handleRemoveMember(g.id, m.user_id)}>Remove</button>
+                  </div>
+                ))}
+
+                {/* Add member inline dropdown */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <select className="input" style={{ flex: 1 }}
+                    value={g.addMemberUserId}
+                    onChange={e => setGroups(gs => gs.map(x => x.id === g.id ? { ...x, addMemberUserId: e.target.value } : x))}>
+                    <option value="">Add a member…</option>
+                    {addableUsers(g).map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                  </select>
+                  <button className="btn btn-secondary" onClick={() => handleAddMember(g.id, g.addMemberUserId)}>Add</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {showCreate && (
-        <div style={S.modal} onClick={() => setShowCreate(false)}>
-          <div style={S.mcard} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontWeight: 600, marginBottom: 4 }}>New group</h3>
-            {error && <p style={S.err}>{error}</p>}
-            <form onSubmit={handleCreateGroup}>
-              <label style={S.label}>Group name</label>
-              <input style={S.input} value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} required autoFocus />
-              <div style={S.row}>
-                <button style={S.cancel} type="button" onClick={() => setShowCreate(false)}>Cancel</button>
-                <button style={S.save} type="submit">Create</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <Dialog title="New group" onClose={() => setShowCreate(false)}>
+          <form onSubmit={handleCreate}>
+            <div className="field">
+              <label>Group name</label>
+              <input className="input" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="e.g. Support Leads" required autoFocus />
+            </div>
+            <div className="dialog-body" style={{ fontSize: 12 }}>You'll be the Group Admin.</div>
+            {error && <div style={{ background: 'var(--color-neutral-800)', borderRadius: 'var(--radius-md)', padding: 'var(--space-2) var(--space-3)', fontSize: 13 }}>{error}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+              <button type="submit" className="btn btn-primary">Create group</button>
+            </div>
+          </form>
+        </Dialog>
       )}
 
-      {showAddMember && selectedGroup && (
-        <div style={S.modal} onClick={() => setShowAddMember(false)}>
-          <div style={S.mcard} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontWeight: 600, marginBottom: 4 }}>Add member to {selectedGroup.name}</h3>
-            {error && <p style={S.err}>{error}</p>}
-            <form onSubmit={handleAddMember}>
-              <label style={S.label}>User ID</label>
-              <input style={S.input} type="number" value={memberForm.user_id}
-                onChange={(e) => setMemberForm((f) => ({ ...f, user_id: e.target.value }))} required />
-              <label style={S.label}>Group role</label>
-              <select style={S.select} value={memberForm.group_role}
-                onChange={(e) => setMemberForm((f) => ({ ...f, group_role: e.target.value }))}>
-                <option value="Group Member">Group Member</option>
-                <option value="Group Admin">Group Admin</option>
-              </select>
-              <div style={S.row}>
-                <button style={S.cancel} type="button" onClick={() => setShowAddMember(false)}>Cancel</button>
-                <button style={S.save} type="submit">Add</button>
-              </div>
-            </form>
+      {deleteTarget && (
+        <Dialog title="Delete group" onClose={() => setDeleteTarget(null)}>
+          <div className="dialog-body">
+            Deleting <strong>{deleteTarget.name}</strong> removes all its page access entries. This can't be undone.
           </div>
-        </div>
+          <div className="dialog-actions">
+            <button className="btn btn-ghost" onClick={() => setDeleteTarget(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleDelete}>Delete</button>
+          </div>
+        </Dialog>
       )}
     </div>
   )
