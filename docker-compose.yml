@@ -1,0 +1,55 @@
+version: "3.9"
+
+# Yantra — self-hosted internal tool platform
+#
+# Quick start:
+#   cp .env.example .env      # fill in APP_SECRET and any overrides
+#   docker compose up -d
+#
+# The app will be available at http://localhost:8080
+# Complete setup at http://localhost:8080/setup
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-yantra}
+      POSTGRES_USER: ${DB_USER:-yantra}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-yantra}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yantra}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Expose port only when explicitly set — keep DB off the network by default
+    ports:
+      - "${DB_EXPOSE_PORT:-}:5432"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-yantra}
+      DB_USER: ${DB_USER:-yantra}
+      DB_PASSWORD: ${DB_PASSWORD:-yantra}
+      DB_SSL_MODE: disable
+      APP_SECRET: ${APP_SECRET}
+      BCRYPT_COST: ${BCRYPT_COST:-12}
+      SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-8}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

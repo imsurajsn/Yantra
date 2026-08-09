@@ -28,5 +28,18 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+
+# Go binary
+backend/yantra
+yantra
+
+# Frontend build output (embedded into Go binary; not committed)
+backend/dist/
+frontend/node_modules/
+frontend/dist/
+
+# Docker
+docker-compose.override.yml
