@@ -1,0 +1,145 @@
+name: lint-and-test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (lint + test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: yantra
+          POSTGRES_PASSWORD: yantra
+          POSTGRES_DB: yantra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yantra -d yantra_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+          working-directory: backend
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        env:
+          # Used by integration tests (see internal/db/*_test.go) — same
+          # dialect/DSN shape the app itself expects via DB_DSN.
+          TEST_DB_DSN: "host=localhost user=yantra password=yantra dbname=yantra_test port=5432 sslmode=disable"
+        run: go test ./... -race -count=1
+
+      - name: go build
+        run: go build ./...
+
+  frontend:
+    name: Frontend (lint + typecheck + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+
+  # Migration safety net: AutoMigrate has no rollback (see plan §5/§3), so
+  # every PR also boots the real binary against a fresh Postgres and hits
+  # the setup->login round trip — catches schema/seed bugs before merge,
+  # not just "it compiles."
+  smoke-test:
+    name: Boot smoke test
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: yantra
+          POSTGRES_PASSWORD: yantra
+          POSTGRES_DB: yantra_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U yantra -d yantra_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend (embed target)
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Build backend
+        working-directory: backend
+        run: go build -o /tmp/yantra ./cmd/yantra
+
+      - name: Boot and smoke-test setup -> login
+        env:
+          APP_SECRET: "ci-smoke-test-secret-please-do-not-reuse-32bytes"
+          DB_TYPE: postgres
+          DB_DSN: "host=localhost user=yantra password=yantra dbname=yantra_smoke port=5432 sslmode=disable"
+          PORT: "8080"
+          COOKIE_SECURE: "false"
+        run: |
+          /tmp/yantra &
+          APP_PID=$!
+          trap "kill $APP_PID" EXIT
+
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8080/api/v1/setup/status && break
+            sleep 1
+          done
+
+          STATUS=$(curl -sf http://localhost:8080/api/v1/setup/status)
+          echo "$STATUS" | grep -q '"setup_complete":false'
+
+          curl -sf -X POST http://localhost:8080/api/v1/setup \
+            -H "Content-Type: application/json" \
+            -H "X-Yantra-Request: 1" \
+            -d '{"email":"admin@example.com","display_name":"CI Admin","password":"supersecret123"}' \
+            -c /tmp/cookies.txt
+
+          curl -sf http://localhost:8080/api/v1/auth/me -b /tmp/cookies.txt | grep -q admin@example.com

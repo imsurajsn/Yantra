@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      # The app always listens on 8080 *inside* the container — only the
+      # host-side mapping above changes with $PORT.
+      - PORT=8080
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Bundled for the zero-config `docker compose up` install path. Point
+  # DB_DSN (in .env) at your own Postgres/MySQL/MariaDB instance instead and
+  # this service is simply unused — no code change needed.
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-yantra}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=${POSTGRES_DB:-yantra}
+    volumes:
+      - yantra_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-yantra} -d ${POSTGRES_DB:-yantra}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  yantra_pgdata:
