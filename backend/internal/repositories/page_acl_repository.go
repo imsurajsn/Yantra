@@ -56,3 +56,20 @@ func (r *PageACLRepository) Upsert(entry *models.PageACL) error {
 func (r *PageACLRepository) Remove(id uint) error {
 	return r.db.Delete(&models.PageACL{}, id).Error
 }
+
+// RemoveBySubject deletes every ACL entry granted to one subject (a user or
+// a group), across every page. Used when deleting a group: PageACL has no
+// DB-level FK to groups.id (it's polymorphic — see the model's doc comment),
+// so "deleting a group removes all its page ACL entries automatically"
+// (PRD requirement 19) has to be enforced here, not by a cascade.
+func (r *PageACLRepository) RemoveBySubject(subjectType models.ACLSubjectType, subjectID uint) error {
+	return r.db.Where("subject_type = ? AND subject_id = ?", subjectType, subjectID).Delete(&models.PageACL{}).Error
+}
+
+func (r *PageACLRepository) FindByID(id uint) (*models.PageACL, error) {
+	var entry models.PageACL
+	if err := r.db.Preload("Role").First(&entry, id).Error; err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}

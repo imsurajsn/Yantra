@@ -16,12 +16,15 @@ type Deps struct {
 	Setup       *SetupHandler
 	Auth        *AuthHandler
 	Users       *UserHandler
+	Groups      *GroupHandler
+	Pages       *PageHandler
+	PageACL     *PageACLHandler
+	PageRuntime *PageRuntimeHandler
+	Audit       *AuditHandler
 	Cookies     *CookieWriter
 }
 
-// RegisterRoutes wires the full /api/v1 tree. Groups/Pages/Audit routes
-// follow the same guard/auth/permission middleware pattern established
-// here, added in later PRs.
+// RegisterRoutes wires the full /api/v1 tree.
 func RegisterRoutes(router *gin.Engine, d Deps) {
 	api := router.Group("/api/v1")
 	api.Use(d.SetupGuard.Middleware())
@@ -42,13 +45,51 @@ func RegisterRoutes(router *gin.Engine, d Deps) {
 
 		users := authed.Group("/users")
 		{
-			users.GET("", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.view"), d.Users.List)
+			// Session-only, not workspace.users.view-gated (like GET /groups):
+			// Group Admins need this to add members to their own group, and the
+			// page-ACL "add subject" picker needs it too. Every mutation below
+			// stays permission-gated.
+			users.GET("", d.Users.List)
 			users.POST("", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.create"), d.Users.Create)
 			users.PATCH("/:id/role", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.change_role"), d.Users.ChangeRole)
 			users.POST("/:id/deactivate", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.deactivate"), d.Users.Deactivate)
 			users.POST("/:id/reactivate", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.deactivate"), d.Users.Reactivate)
 			users.POST("/:id/reset-password", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.reset_password"), d.Users.ResetPassword)
 		}
+
+		groups := authed.Group("/groups")
+		{
+			groups.GET("", d.Groups.List)
+			groups.POST("", middleware.RequireWorkspacePermission(d.Perms, "workspace.groups.create"), d.Groups.Create)
+			groups.GET("/:id", d.Groups.Get)
+			groups.PATCH("/:id", d.Groups.Rename)
+			groups.DELETE("/:id", d.Groups.Delete)
+			groups.POST("/:id/members", d.Groups.AddMember)
+			groups.DELETE("/:id/members/:user_id", d.Groups.RemoveMember)
+			groups.PATCH("/:id/members/:user_id", d.Groups.ChangeMemberRole)
+		}
+
+		pages := authed.Group("/pages")
+		{
+			pages.GET("", d.Pages.List)
+			pages.POST("/validate", middleware.RequireWorkspacePermission(d.Perms, "workspace.pages.create"), d.Pages.Validate)
+			pages.POST("/preview", middleware.RequireWorkspacePermission(d.Perms, "workspace.pages.create"), d.Pages.Preview)
+			pages.POST("", middleware.RequireWorkspacePermission(d.Perms, "workspace.pages.create"), d.Pages.Create)
+			pages.GET("/:id", d.Pages.Get)
+			pages.PATCH("/:id", d.Pages.Update)
+			pages.DELETE("/:id", d.Pages.Delete)
+
+			pages.GET("/:id/acl", d.PageACL.List)
+			pages.POST("/:id/acl", d.PageACL.Add)
+			pages.DELETE("/:id/acl/:acl_id", d.PageACL.Remove)
+
+			pages.POST("/:id/view", d.PageRuntime.View)
+			pages.GET("/:id/data", d.PageRuntime.Data)
+			pages.PATCH("/:id/data/:row_id", d.PageRuntime.Writeback)
+			pages.POST("/:id/submit", d.PageRuntime.Submit)
+		}
+
+		authed.GET("/audit-log", middleware.RequireWorkspacePermission(d.Perms, "workspace.audit.view"), d.Audit.List)
 	}
 }
 

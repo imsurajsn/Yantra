@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/imsurajsn/yantra/internal/config"
+	appcrypto "github.com/imsurajsn/yantra/internal/crypto"
 	"github.com/imsurajsn/yantra/internal/db"
 	"github.com/imsurajsn/yantra/internal/handlers"
 	"github.com/imsurajsn/yantra/internal/middleware"
@@ -40,6 +41,7 @@ func main() {
 	roleRepo := repositories.NewRoleRepository(gdb)
 	sessionRepo := repositories.NewSessionRepository(gdb)
 	groupRepo := repositories.NewGroupRepository(gdb)
+	pageRepo := repositories.NewPageRepository(gdb)
 	pageACLRepo := repositories.NewPageACLRepository(gdb)
 	auditRepo := repositories.NewAuditRepository(gdb)
 
@@ -48,10 +50,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("yantra: %v", err)
 	}
+	aead, err := appcrypto.NewAESGCM(cfg.AppSecret)
+	if err != nil {
+		log.Fatalf("yantra: %v", err)
+	}
 	auditSvc := services.NewAuditService(auditRepo)
 	authSvc := services.NewAuthService(userRepo, sessionRepo, tokenSvc, auditSvc, cfg.SessionInactivityMins)
 	userSvc := services.NewUserService(gdb, userRepo, roleRepo, sessionRepo)
 	permSvc := services.NewPermissionService(roleRepo, groupRepo, pageACLRepo)
+	groupSvc := services.NewGroupService(groupRepo, roleRepo, pageACLRepo)
+	pageSvc := services.NewPageService(pageRepo, aead)
+	pageACLSvc := services.NewPageACLService(pageACLRepo, roleRepo)
 
 	// Middleware
 	setupGuard := middleware.NewSetupGuard(userRepo, handlers.SetupAllowedPaths())
@@ -61,6 +70,11 @@ func main() {
 	setupHandler := handlers.NewSetupHandler(userRepo, userSvc, setupGuard)
 	authHandler := handlers.NewAuthHandler(authSvc, userSvc, groupRepo, roleRepo, cookies)
 	userHandler := handlers.NewUserHandler(userSvc)
+	groupHandler := handlers.NewGroupHandler(groupSvc, permSvc)
+	pageHandler := handlers.NewPageHandler(pageSvc, pageACLSvc, permSvc)
+	pageACLHandler := handlers.NewPageACLHandler(pageACLSvc, permSvc)
+	pageRuntimeHandler := handlers.NewPageRuntimeHandler(pageSvc, permSvc, auditSvc)
+	auditHandler := handlers.NewAuditHandler(auditRepo)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -75,6 +89,11 @@ func main() {
 		Setup:       setupHandler,
 		Auth:        authHandler,
 		Users:       userHandler,
+		Groups:      groupHandler,
+		Pages:       pageHandler,
+		PageACL:     pageACLHandler,
+		PageRuntime: pageRuntimeHandler,
+		Audit:       auditHandler,
 		Cookies:     cookies,
 	})
 

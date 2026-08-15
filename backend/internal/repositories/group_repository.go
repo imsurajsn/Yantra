@@ -71,3 +71,21 @@ func (r *GroupRepository) Members(groupID uint) ([]models.GroupMember, error) {
 func (r *GroupRepository) Delete(id uint) error {
 	return r.db.Delete(&models.Group{}, id).Error
 }
+
+func (r *GroupRepository) Save(g *models.Group) error {
+	return r.db.Save(g).Error
+}
+
+// CountPages reports how many pages use this group as their nav-organization
+// group (Page.PageGroupID). The DB FK is ON DELETE RESTRICT, but the
+// service layer checks this first for a clean 409 instead of a raw
+// dialect-specific FK-violation error surfacing to the API.
+func (r *GroupRepository) CountPages(groupID uint) (int64, error) {
+	var count int64
+	err := r.db.Table("pages").Where("page_group_id = ?", groupID).Count(&count).Error
+	return count, err
+}
+
+func (r *GroupRepository) SaveMember(m *models.GroupMember) error {
+	return r.db.Save(m).Error
+}

@@ -5,10 +5,10 @@ import { authApi } from '../lib/api/auth'
 import { useAuth } from '../lib/auth/AuthContext'
 
 // Minimal top nav for the authenticated app shell. Not the mockup's full
-// sidebar (page groups, persona switcher) — that lands with the Pages PR,
-// once there's something for a sidebar to actually list. This exists so
-// admin-only screens (Users, and later Groups/Pages/Audit) are reachable at
-// all, rather than requiring a user to know the URL.
+// sidebar (persona switcher, pages listed inline per group) — this is a
+// flat top nav to the section screens instead. Groups is visible to
+// everyone (read-only for those without workspace.groups.create); Users
+// and Audit Log are gated to the permissions that actually unlock them.
 export function AppLayout({ children }: { children: ReactNode }) {
   const { user, refetch } = useAuth()
 
@@ -34,9 +34,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <NavLink to="/" end style={navStyle}>
             Home
           </NavLink>
+          <NavLink to="/groups" style={navStyle}>
+            Groups
+          </NavLink>
           <PermissionGate permission="workspace.users.view">
             <NavLink to="/users" style={navStyle}>
               Users
+            </NavLink>
+          </PermissionGate>
+          <PermissionGate permission="workspace.audit.view">
+            <NavLink to="/audit-log" style={navStyle}>
+              Audit Log
             </NavLink>
           </PermissionGate>
         </nav>
