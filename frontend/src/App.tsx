@@ -4,6 +4,7 @@ import { SetupPage } from './routes/SetupPage'
 import { LoginPage } from './routes/LoginPage'
 import { ForcePasswordChangePage } from './routes/ForcePasswordChangePage'
 import { HomePage } from './routes/HomePage'
+import { ProfilePage } from './routes/ProfilePage'
 import { PageViewer } from './routes/PageViewer'
 import { UsersPage } from './routes/admin/UsersPage'
 import { GroupsPage } from './routes/admin/GroupsPage'
@@ -35,6 +36,7 @@ export function App() {
         <Route path="/force-password-change" element={<ForcePasswordChangePage />} />
 
         <Route path="/" element={<Authed><HomePage /></Authed>} />
+        <Route path="/profile" element={<Authed><ProfilePage /></Authed>} />
         <Route path="/groups" element={<Authed><GroupsPage /></Authed>} />
 
         <Route

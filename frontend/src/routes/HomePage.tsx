@@ -5,10 +5,12 @@ import { Dialog } from '../components/Dialog'
 import { PermissionGate } from '../components/PermissionGate'
 import { pagesApi } from '../lib/api/pages'
 import { groupsApi } from '../lib/api/groups'
+import { usersApi } from '../lib/api/users'
+import { auditApi } from '../lib/api/audit'
 import { useAuth } from '../lib/auth/AuthContext'
 
 export function HomePage() {
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   const navigate = useNavigate()
   const [newPageOpen, setNewPageOpen] = useState(false)
 
@@ -37,6 +39,8 @@ export function HomePage() {
         </PermissionGate>
       </div>
 
+      {can('workspace.audit.view') && <HomeStats pageCount={pages?.length ?? 0} />}
+
       {isLoading && <p className="muted">Loading…</p>}
       {error && <p className="error">Failed to load pages.</p>}
 
@@ -50,10 +54,20 @@ export function HomePage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             {groupPages?.map((p) => (
               <div key={p.id} className="card" style={{ cursor: 'pointer' }} onClick={() => navigate(`/pages/${p.id}`)}>
-                <div className="card-kicker" style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--muted)' }}>
-                  {p.type === 'table' ? 'Data Table' : 'Form'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--muted)' }}>
+                    {p.type === 'table' ? 'Data Table' : 'Form'}
+                  </span>
+                  <span className="tag" style={{ marginLeft: 'auto' }}>
+                    {p.effective_role}
+                  </span>
                 </div>
                 <div style={{ fontWeight: 500, marginTop: 4 }}>{p.name}</div>
+                {p.description && (
+                  <p className="muted" style={{ fontSize: 12.5, marginTop: 4, marginBottom: 0 }}>
+                    {p.description}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -79,6 +93,39 @@ export function HomePage() {
           </div>
         </Dialog>
       )}
+    </div>
+  )
+}
+
+// Admin-only stat row (matches the mockup's `showHomeStats: persona ===
+// 'admin'`) — gated on workspace.audit.view as the closest existing
+// "is this an Admin" permission signal, since Admin holds every workspace
+// permission and Member/Viewer hold none of them.
+function HomeStats({ pageCount }: { pageCount: number }) {
+  const { data: users } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
+  const { data: todayEvents } = useQuery({
+    queryKey: ['audit-log', 'today'],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const result = await auditApi.list({ from: today })
+      return result.total
+    },
+  })
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+      <StatCard label="Active pages" value={pageCount} />
+      <StatCard label="Team members" value={users?.length ?? '—'} />
+      <StatCard label="Events today" value={todayEvents ?? '—'} />
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="card">
+      <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</div>
+      <div style={{ fontSize: 26, marginTop: 4 }}>{value}</div>
     </div>
   )
 }

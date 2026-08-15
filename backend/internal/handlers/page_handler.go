@@ -36,14 +36,18 @@ func toAuthHeaderInputs(dtos []authHeaderDTO) []services.AuthHeaderInput {
 }
 
 type pageListItemDTO struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	PageGroupID uint   `json:"page_group_id"`
+	ID            uint   `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Type          string `json:"type"`
+	PageGroupID   uint   `json:"page_group_id"`
+	EffectiveRole string `json:"effective_role"`
 }
 
 // List backs GET /pages — filtered to pages the caller can view (Admin sees
-// all). Per plan, no effective_role here — that's GET /pages/:id's job.
+// all). Includes each page's effective_role — the mockup's Home cards show
+// a role badge per page, and the resolution is already computed here for
+// the ACL filter itself, so returning it costs nothing extra.
 func (h *PageHandler) List(c *gin.Context) {
 	user := middleware.CurrentUser(c)
 	pages, err := h.pagesSvc.List()
@@ -55,16 +59,16 @@ func (h *PageHandler) List(c *gin.Context) {
 	out := make([]pageListItemDTO, 0, len(pages))
 	for _, p := range pages {
 		if user.Role.BypassesPageACL {
-			out = append(out, pageListItemDTO{ID: p.ID, Name: p.Name, Type: string(p.PageType), PageGroupID: p.PageGroupID})
+			out = append(out, pageListItemDTO{ID: p.ID, Name: p.Name, Description: p.Description, Type: string(p.PageType), PageGroupID: p.PageGroupID, EffectiveRole: "Owner"})
 			continue
 		}
-		_, ok, err := h.perms.EffectivePageRole(user, p.ID)
+		role, ok, err := h.perms.EffectivePageRole(user, p.ID)
 		if err != nil {
 			apierror.Send(c, http.StatusInternalServerError, apierror.CodeInternal, "Failed to resolve page access.")
 			return
 		}
 		if ok {
-			out = append(out, pageListItemDTO{ID: p.ID, Name: p.Name, Type: string(p.PageType), PageGroupID: p.PageGroupID})
+			out = append(out, pageListItemDTO{ID: p.ID, Name: p.Name, Description: p.Description, Type: string(p.PageType), PageGroupID: p.PageGroupID, EffectiveRole: roleKeyToLabel(role.Key)})
 		}
 	}
 	c.JSON(http.StatusOK, out)

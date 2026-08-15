@@ -5,8 +5,10 @@ export type PageType = 'table' | 'form'
 export interface PageListItem {
   id: number
   name: string
+  description: string
   type: PageType
   page_group_id: number
+  effective_role: 'Owner' | 'Editor' | 'Viewer'
 }
 
 export interface ValidateResult {
