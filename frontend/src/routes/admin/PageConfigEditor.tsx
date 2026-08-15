@@ -6,6 +6,7 @@ import { pagesApi, type AuthHeaderInput, type PageType } from '../../lib/api/pag
 import { groupsApi } from '../../lib/api/groups'
 import { ApiError } from '../../lib/api/client'
 import { NotAuthorizedPage } from '../NotAuthorizedPage'
+import { useUnsavedChanges } from '../../lib/unsavedChanges'
 
 const DEFAULT_TABLE_YAML = `title: New Data Table Page
 description: Describe what this page shows.
@@ -45,6 +46,7 @@ fields:
 export function PageConfigEditor() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { setDirty } = useUnsavedChanges()
   const params = useParams<{ id?: string; type?: string }>()
   const isEdit = Boolean(params.id)
   const pageId = params.id ? Number(params.id) : undefined
@@ -84,6 +86,13 @@ export function PageConfigEditor() {
     }
   }, [existing])
 
+  // Clears the "unsaved changes" flag when this editing session ends, no
+  // matter how it ends (saved, cancelled, or navigated away and confirmed)
+  // — it must never leak into whatever screen the user lands on next.
+  useEffect(() => {
+    return () => setDirty(false)
+  }, [setDirty])
+
   const validateMutation = useMutation({
     mutationFn: () => pagesApi.validate(pageType, yamlText),
     onSuccess: async (result) => {
@@ -119,6 +128,7 @@ export function PageConfigEditor() {
       return pagesApi.create({ page_group_id: groupId, page_type: pageType, yaml: yamlText, auth_headers: authHeaders })
     },
     onSuccess: (result) => {
+      setDirty(false)
       queryClient.invalidateQueries({ queryKey: ['pages'] })
       navigate(`/pages/${result.id}`, { replace: true })
     },
@@ -150,7 +160,10 @@ export function PageConfigEditor() {
             </div>
             <textarea
               value={yamlText}
-              onChange={(e) => setYamlText(e.target.value)}
+              onChange={(e) => {
+                setYamlText(e.target.value)
+                setDirty(true)
+              }}
               spellCheck={false}
               style={{
                 width: '100%',
@@ -186,14 +199,28 @@ export function PageConfigEditor() {
               >
                 Validate &amp; preview
               </button>
-              <button onClick={() => navigate(-1)}>Cancel</button>
+              <button
+                onClick={() => {
+                  setDirty(false)
+                  navigate(-1)
+                }}
+              >
+                Cancel
+              </button>
             </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="card">
               <h4 style={{ marginTop: 0 }}>Group</h4>
-              <select value={groupId} onChange={(e) => setGroupId(e.target.value ? Number(e.target.value) : '')} style={{ width: '100%' }}>
+              <select
+                value={groupId}
+                onChange={(e) => {
+                  setGroupId(e.target.value ? Number(e.target.value) : '')
+                  setDirty(true)
+                }}
+                style={{ width: '100%' }}
+              >
                 <option value="">Choose a group…</option>
                 {groups?.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -209,7 +236,13 @@ export function PageConfigEditor() {
                   Existing: {existingHeaderNames.join(', ')} (unchanged unless overwritten below)
                 </p>
               )}
-              <AuthHeaderEditor headers={authHeaders} onChange={setAuthHeaders} />
+              <AuthHeaderEditor
+                headers={authHeaders}
+                onChange={(h) => {
+                  setAuthHeaders(h)
+                  setDirty(true)
+                }}
+              />
             </div>
             <div className="card">
               <h4 style={{ marginTop: 0, fontSize: 13 }}>Schema reference</h4>

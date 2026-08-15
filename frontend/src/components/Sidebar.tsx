@@ -1,9 +1,12 @@
-import { NavLink } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { pagesApi } from '../lib/api/pages'
 import { groupsApi } from '../lib/api/groups'
 import { useAuth } from '../lib/auth/AuthContext'
+import { useUnsavedChanges } from '../lib/unsavedChanges'
 import { TableIcon, FormIcon, UsersIcon, GroupsIcon, AuditIcon } from './Icons'
+import { Dialog } from './Dialog'
 
 // The mockup's left sidebar: pages listed grouped by their Group, plus a
 // role-conditional bottom section — "Admin" (Users/Groups/Audit Log) for
@@ -15,8 +18,19 @@ import { TableIcon, FormIcon, UsersIcon, GroupsIcon, AuditIcon } from './Icons'
 // shown here.
 export function Sidebar() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const { isDirty, setDirty } = useUnsavedChanges()
+  const [confirmLeave, setConfirmLeave] = useState(false)
   const { data: pages } = useQuery({ queryKey: ['pages'], queryFn: pagesApi.list })
   const { data: groups } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
+
+  function handleLogoClick() {
+    if (isDirty) {
+      setConfirmLeave(true)
+      return
+    }
+    navigate('/')
+  }
 
   const groupsById = new Map((groups ?? []).map((g) => [g.id, g.name]))
   const pagesByGroup = new Map<number, typeof pages>()
@@ -42,7 +56,21 @@ export function Sidebar() {
         overflowY: 'auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px', marginBottom: 20 }}>
+      <button
+        onClick={handleLogoClick}
+        title="Go to Home"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '4px 8px',
+          marginBottom: 20,
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          alignSelf: 'flex-start',
+        }}
+      >
         <div
           style={{
             width: 26,
@@ -59,8 +87,8 @@ export function Sidebar() {
         >
           Y
         </div>
-        <div style={{ fontWeight: 500, fontSize: 16 }}>Yantra</div>
-      </div>
+        <div style={{ fontWeight: 500, fontSize: 16, color: 'var(--text)' }}>Yantra</div>
+      </button>
 
       {pagesByGroup.size > 0 && (
         <div style={{ marginBottom: 16 }}>
@@ -117,6 +145,32 @@ export function Sidebar() {
           Profile
         </NavLink>
       </div>
+
+      {confirmLeave && (
+        <Dialog
+          title="Discard unsaved changes?"
+          onClose={() => setConfirmLeave(false)}
+          actions={
+            <>
+              <button onClick={() => setConfirmLeave(false)}>Keep editing</button>
+              <button
+                type="submit"
+                onClick={() => {
+                  setDirty(false)
+                  setConfirmLeave(false)
+                  navigate('/')
+                }}
+              >
+                Leave anyway
+              </button>
+            </>
+          }
+        >
+          <p className="muted" style={{ margin: 0 }}>
+            You have unsaved changes on this page. Leaving now will discard them.
+          </p>
+        </Dialog>
+      )}
     </aside>
   )
 }

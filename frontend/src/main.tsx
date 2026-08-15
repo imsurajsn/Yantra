@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import { App } from './App.tsx'
 import { AuthProvider } from './lib/auth/AuthContext.tsx'
+import { UnsavedChangesProvider } from './lib/unsavedChanges.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,7 +24,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <UnsavedChangesProvider>
+            <App />
+          </UnsavedChangesProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
