@@ -3,11 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { AuthScreenLayout, Field } from '../components/AuthLayout'
 import { authApi } from '../lib/api/auth'
 import { ApiError } from '../lib/api/client'
-import { useAuth } from '../lib/auth/AuthContext'
 
 export function SetupPage() {
   const navigate = useNavigate()
-  const { refetch } = useAuth()
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -35,10 +33,12 @@ export function SetupPage() {
     setSubmitting(true)
     try {
       await authApi.submitSetup({ email, display_name: displayName, password })
-      // Setup signs the new Admin in immediately — refresh the session
-      // context so ProtectedRoute sees them as authenticated right away.
-      await refetch()
-      navigate('/', { replace: true })
+      // Setup does NOT sign the new Admin in (PRD requirement 2 and the
+      // mockup both send the user to /login, not straight into the app).
+      navigate('/login', {
+        replace: true,
+        state: { message: 'Admin account created — sign in to continue.' },
+      })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.')
     } finally {

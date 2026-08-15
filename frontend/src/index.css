@@ -6,6 +6,29 @@
     'Segoe UI',
     Roboto,
     sans-serif;
+
+  /* A deliberately plain baseline theme — NOT a port of the Nocturne
+     mockup's design system (that was scoped out; see the plan doc). This
+     exists so the app reads as "simple, on purpose" rather than
+     unstyled/broken while the real page-primitives UI is still unbuilt. */
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --border: #e0e0e3;
+  --text: #1a1a1e;
+  --muted: #6b6b74;
+  --accent: #3b5bfd;
+  --danger: #c8352f;
+  --success: #1a7a4c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181c;
+    --surface: #202126;
+    --border: #33343a;
+    --text: #f0f0f2;
+    --muted: #9a9aa2;
+  }
 }
 
 * {
@@ -15,12 +38,51 @@
 body {
   margin: 0;
   min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
 }
 
 input,
 select,
 button {
   font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 14px;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button[type='submit'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
 }
 
 .auth-screen {
@@ -34,8 +96,9 @@ button {
 .auth-card {
   width: min(400px, 100%);
   padding: 32px;
-  border: 1px solid #3333;
-  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .auth-card form {
@@ -55,8 +118,10 @@ button {
 .field input,
 .field select {
   padding: 8px 10px;
-  border: 1px solid #3333;
+  border: 1px solid var(--border);
   border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .tag {
@@ -64,18 +129,25 @@ button {
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  border: 1px solid #3333;
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 8px;
   width: fit-content;
+  color: var(--muted);
 }
 
 .muted {
-  opacity: 0.65;
+  opacity: 0.75;
+  color: var(--muted);
   font-size: 13px;
 }
 
 .error {
   font-size: 13px;
-  color: #d94848;
+  color: var(--danger);
+}
+
+.success {
+  font-size: 13px;
+  color: var(--success);
 }

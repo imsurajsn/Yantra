@@ -60,6 +60,54 @@ func TestUserService_Deactivate_AllowsRemovingOneOfSeveralAdmins(t *testing.T) {
 	}
 }
 
+// Regression test for a real bug: models.User.MustChangePassword used to
+// carry a `gorm:"default:true"` tag. GORM silently omits a field from its
+// INSERT when the Go value is that field's zero value (false, here) AND the
+// field has a `default:` tag — so CreateFirstAdmin's explicit `false` never
+// reached the database, and the DB column default (true) applied instead,
+// forcing the first-run Admin through a redundant password-change screen
+// right after they'd just chosen a password during setup.
+func TestUserService_CreateFirstAdmin_DoesNotRequirePasswordChange(t *testing.T) {
+	gdb := testutil.RequireDB(t)
+	userSvc, users := newUserService(gdb)
+
+	admin, err := userSvc.CreateFirstAdmin("first-admin@fixture.test", "First Admin", "password123")
+	if err != nil {
+		t.Fatalf("CreateFirstAdmin: %v", err)
+	}
+
+	// Re-fetch from the DB rather than trusting the in-memory struct — the
+	// bug this guards against only manifests once the value round-trips
+	// through an actual INSERT.
+	reloaded, err := users.FindByID(admin.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if reloaded.MustChangePassword {
+		t.Fatal("the first-run Admin must NOT be forced to change their password again — they just set it during setup")
+	}
+}
+
+func TestUserService_CreateUser_RequiresPasswordChangeOnFirstLogin(t *testing.T) {
+	gdb := testutil.RequireDB(t)
+	roles := repositories.NewRoleRepository(gdb)
+	userSvc, users := newUserService(gdb)
+	admin := mustCreateUser(t, gdb, roles, "creator2@fixture.test", models.RoleAdmin)
+
+	created, err := userSvc.CreateUser("newbie@fixture.test", "Newbie", "temp12345", models.RoleMember, admin.ID)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	reloaded, err := users.FindByID(created.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if !reloaded.MustChangePassword {
+		t.Fatal("an admin-created user MUST be forced to change the admin-set initial password on first login (PRD requirement 40)")
+	}
+}
+
 func TestUserService_CreateUser_RejectsDuplicateEmail(t *testing.T) {
 	gdb := testutil.RequireDB(t)
 	roles := repositories.NewRoleRepository(gdb)

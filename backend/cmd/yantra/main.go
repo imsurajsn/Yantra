@@ -59,7 +59,7 @@ func main() {
 
 	// Handlers
 	cookies := handlers.NewCookieWriter(cookieSecure())
-	setupHandler := handlers.NewSetupHandler(userRepo, userSvc, authSvc, setupGuard, cookies)
+	setupHandler := handlers.NewSetupHandler(userRepo, userSvc, setupGuard)
 	authHandler := handlers.NewAuthHandler(authSvc, userSvc, groupRepo, roleRepo, cookies)
 
 	router := gin.New()

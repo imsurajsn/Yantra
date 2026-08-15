@@ -13,12 +13,14 @@ export function HomePage() {
   }
 
   return (
-    <div style={{ padding: 32 }}>
-      <h1>Welcome back, {user?.display_name}</h1>
-      <p>
-        Signed in as <strong>{user?.email}</strong> · {user?.role}
-      </p>
-      <button onClick={handleSignOut}>Sign out</button>
+    <div className="page">
+      <div className="card">
+        <h1 style={{ marginTop: 0 }}>Welcome back, {user?.display_name}</h1>
+        <p className="muted">
+          Signed in as <strong style={{ color: 'var(--text)' }}>{user?.email}</strong> · {user?.role}
+        </p>
+        <button onClick={handleSignOut}>Sign out</button>
+      </div>
     </div>
   )
 }

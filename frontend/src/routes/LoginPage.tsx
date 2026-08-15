@@ -1,13 +1,19 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AuthScreenLayout, Field } from '../components/AuthLayout'
 import { authApi } from '../lib/api/auth'
 import { ApiError } from '../lib/api/client'
 import { useAuth } from '../lib/auth/AuthContext'
 
+interface LoginLocationState {
+  message?: string
+}
+
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { refetch } = useAuth()
+  const setupMessage = (location.state as LoginLocationState | null)?.message
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -40,6 +46,7 @@ export function LoginPage() {
   return (
     <AuthScreenLayout>
       <h1>Sign in</h1>
+      {setupMessage && <p className="success">{setupMessage}</p>}
       <form onSubmit={handleSubmit}>
         <Field label="Email">
           <input

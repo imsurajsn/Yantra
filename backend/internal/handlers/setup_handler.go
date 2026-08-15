@@ -12,15 +12,13 @@ import (
 )
 
 type SetupHandler struct {
-	users *repositories.UserRepository
+	users    *repositories.UserRepository
 	usersSvc *services.UserService
-	auth  *services.AuthService
-	guard *middleware.SetupGuard
-	cookies *CookieWriter
+	guard    *middleware.SetupGuard
 }
 
-func NewSetupHandler(users *repositories.UserRepository, usersSvc *services.UserService, auth *services.AuthService, guard *middleware.SetupGuard, cookies *CookieWriter) *SetupHandler {
-	return &SetupHandler{users: users, usersSvc: usersSvc, auth: auth, guard: guard, cookies: cookies}
+func NewSetupHandler(users *repositories.UserRepository, usersSvc *services.UserService, guard *middleware.SetupGuard) *SetupHandler {
+	return &SetupHandler{users: users, usersSvc: usersSvc, guard: guard}
 }
 
 type setupStatusResponse struct {
@@ -43,10 +41,17 @@ type setupRequest struct {
 	Password    string `json:"password" binding:"required,min=8"`
 }
 
-// Submit backs POST /setup. Per PRD requirement 3, once any Admin exists
-// this permanently 409s — checked here explicitly (not just relying on
-// SetupGuard, which only blocks OTHER routes while setup is incomplete;
-// this route itself must self-disable).
+// Submit backs POST /setup. Per PRD requirement 2, it creates the Admin
+// account and the caller is redirected to the login screen — it does NOT
+// sign the new Admin in. (An earlier version of this handler auto-issued a
+// session here; that was a bug against both the PRD text and the mockup,
+// which shows a toast and sends the user to /login, not straight to the
+// authenticated app.)
+//
+// Per PRD requirement 3, once any Admin exists this permanently 409s —
+// checked here explicitly (not just relying on SetupGuard, which only
+// blocks OTHER routes while setup is incomplete; this route itself must
+// self-disable).
 func (h *SetupHandler) Submit(c *gin.Context) {
 	var req setupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,12 +81,5 @@ func (h *SetupHandler) Submit(c *gin.Context) {
 
 	h.guard.MarkComplete()
 
-	result, err := h.auth.IssueSession(user, c.ClientIP(), c.Request.UserAgent())
-	if err != nil {
-		apierror.Send(c, http.StatusInternalServerError, apierror.CodeInternal, "Account was created, but signing in failed. Please log in.")
-		return
-	}
-
-	h.cookies.SetSession(c, result.Token, result.Expiry)
 	c.JSON(http.StatusCreated, gin.H{"user": userResponse(user)})
 }
