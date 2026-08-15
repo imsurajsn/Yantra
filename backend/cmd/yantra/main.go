@@ -52,7 +52,6 @@ func main() {
 	authSvc := services.NewAuthService(userRepo, sessionRepo, tokenSvc, auditSvc, cfg.SessionInactivityMins)
 	userSvc := services.NewUserService(gdb, userRepo, roleRepo, sessionRepo)
 	permSvc := services.NewPermissionService(roleRepo, groupRepo, pageACLRepo)
-	_ = permSvc // wired for later route groups (users/groups/pages) added in subsequent PRs
 
 	// Middleware
 	setupGuard := middleware.NewSetupGuard(userRepo, handlers.SetupAllowedPaths())
@@ -61,6 +60,7 @@ func main() {
 	cookies := handlers.NewCookieWriter(cookieSecure())
 	setupHandler := handlers.NewSetupHandler(userRepo, userSvc, setupGuard)
 	authHandler := handlers.NewAuthHandler(authSvc, userSvc, groupRepo, roleRepo, cookies)
+	userHandler := handlers.NewUserHandler(userSvc)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -74,6 +74,7 @@ func main() {
 		Perms:       permSvc,
 		Setup:       setupHandler,
 		Auth:        authHandler,
+		Users:       userHandler,
 		Cookies:     cookies,
 	})
 

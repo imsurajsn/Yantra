@@ -232,21 +232,45 @@ func (s *UserService) Reactivate(userID uint) error {
 	return s.users.Save(user)
 }
 
+// ChangeRole applies the same last-Admin protection as Deactivate: demoting
+// the workspace's only active Admin to Member/Viewer would leave zero
+// Admins just as surely as deactivating them would, so it gets the same
+// row-locked-transaction guard.
 func (s *UserService) ChangeRole(userID uint, roleKey string) (*models.User, error) {
-	role, err := s.roles.FindByKey(roleKey)
+	newRole, err := s.roles.FindByKey(roleKey)
 	if err != nil {
 		return nil, err
 	}
-	user, err := s.users.FindByID(userID)
+	adminRole, err := s.roles.FindByKey(models.RoleAdmin)
 	if err != nil {
 		return nil, err
 	}
-	user.RoleID = role.ID
-	user.Role = *role
-	if err := s.users.Save(user); err != nil {
+
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		var target models.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&target, userID).Error; err != nil {
+			return err
+		}
+
+		if target.RoleID == adminRole.ID && newRole.ID != adminRole.ID && target.IsActive {
+			var activeAdmins int64
+			if err := tx.Model(&models.User{}).
+				Where("role_id = ? AND is_active = ?", adminRole.ID, true).
+				Count(&activeAdmins).Error; err != nil {
+				return err
+			}
+			if activeAdmins <= 1 {
+				return ErrLastAdmin
+			}
+		}
+
+		target.RoleID = newRole.ID
+		return tx.Save(&target).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-	return user, nil
+	return s.users.FindByID(userID)
 }
 
 func (s *UserService) List() ([]models.User, error) {

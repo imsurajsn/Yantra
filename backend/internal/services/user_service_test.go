@@ -60,6 +60,48 @@ func TestUserService_Deactivate_AllowsRemovingOneOfSeveralAdmins(t *testing.T) {
 	}
 }
 
+func TestUserService_ChangeRole_BlocksDemotingTheLastActiveAdmin(t *testing.T) {
+	gdb := testutil.RequireDB(t)
+	roles := repositories.NewRoleRepository(gdb)
+	userSvc, users := newUserService(gdb)
+
+	admin := mustCreateUser(t, gdb, roles, "sole-admin-role@fixture.test", models.RoleAdmin)
+
+	_, err := userSvc.ChangeRole(admin.ID, models.RoleMember)
+	if !errors.Is(err, services.ErrLastAdmin) {
+		t.Fatalf("ChangeRole(sole admin -> member) error = %v, want ErrLastAdmin", err)
+	}
+
+	reloaded, err := users.FindByID(admin.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if reloaded.Role.Key != models.RoleAdmin {
+		t.Fatalf("the sole Admin's role must be unchanged after a blocked demotion, got %s", reloaded.Role.Key)
+	}
+}
+
+func TestUserService_ChangeRole_AllowsDemotingOneOfSeveralAdmins(t *testing.T) {
+	gdb := testutil.RequireDB(t)
+	roles := repositories.NewRoleRepository(gdb)
+	userSvc, users := newUserService(gdb)
+
+	first := mustCreateUser(t, gdb, roles, "admin-role-one@fixture.test", models.RoleAdmin)
+	_ = mustCreateUser(t, gdb, roles, "admin-role-two@fixture.test", models.RoleAdmin)
+
+	if _, err := userSvc.ChangeRole(first.ID, models.RoleMember); err != nil {
+		t.Fatalf("ChangeRole: unexpected error with a second Admin still active: %v", err)
+	}
+
+	reloaded, err := users.FindByID(first.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if reloaded.Role.Key != models.RoleMember {
+		t.Fatalf("expected the demoted user's role to be member, got %s", reloaded.Role.Key)
+	}
+}
+
 // Regression test for a real bug: models.User.MustChangePassword used to
 // carry a `gorm:"default:true"` tag. GORM silently omits a field from its
 // INSERT when the Go value is that field's zero value (false, here) AND the

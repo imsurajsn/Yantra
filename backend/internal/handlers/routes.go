@@ -15,12 +15,13 @@ type Deps struct {
 	Perms       *services.PermissionService
 	Setup       *SetupHandler
 	Auth        *AuthHandler
+	Users       *UserHandler
 	Cookies     *CookieWriter
 }
 
-// RegisterRoutes wires the full /api/v1 tree for this PR's vertical slice
-// (setup + auth). Later PRs extend this same function with users/groups/
-// pages/audit groups, reusing the same guard/auth/permission middleware.
+// RegisterRoutes wires the full /api/v1 tree. Groups/Pages/Audit routes
+// follow the same guard/auth/permission middleware pattern established
+// here, added in later PRs.
 func RegisterRoutes(router *gin.Engine, d Deps) {
 	api := router.Group("/api/v1")
 	api.Use(d.SetupGuard.Middleware())
@@ -38,6 +39,16 @@ func RegisterRoutes(router *gin.Engine, d Deps) {
 		authed.GET("/auth/me", d.Auth.Me)
 		authed.POST("/auth/change-password", d.Auth.ChangePassword)
 		authed.POST("/auth/set-first-login-password", d.Auth.SetFirstLoginPassword)
+
+		users := authed.Group("/users")
+		{
+			users.GET("", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.view"), d.Users.List)
+			users.POST("", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.create"), d.Users.Create)
+			users.PATCH("/:id/role", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.change_role"), d.Users.ChangeRole)
+			users.POST("/:id/deactivate", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.deactivate"), d.Users.Deactivate)
+			users.POST("/:id/reactivate", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.deactivate"), d.Users.Reactivate)
+			users.POST("/:id/reset-password", middleware.RequireWorkspacePermission(d.Perms, "workspace.users.reset_password"), d.Users.ResetPassword)
+		}
 	}
 }
 

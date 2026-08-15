@@ -7,6 +7,7 @@ export interface User {
   role: string
   must_change_password: boolean
   is_active: boolean
+  last_login_at: string | null
 }
 
 export interface UserGroup {

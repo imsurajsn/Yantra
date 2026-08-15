@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { AuthScreenLayout, Field } from '../components/AuthLayout'
 import { authApi } from '../lib/api/auth'
 import { ApiError } from '../lib/api/client'
 
 export function SetupPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -33,6 +35,14 @@ export function SetupPage() {
     setSubmitting(true)
     try {
       await authApi.submitSetup({ email, display_name: displayName, password })
+      // Write the known-fresh value directly into the cache rather than
+      // just navigating and hoping SetupGate's query refetches in time —
+      // it doesn't: SetupGate already has `{setup_complete: false}` cached
+      // from before this call, isLoading is false (cached data exists), so
+      // it renders on the STALE value immediately and bounces back to
+      // /setup before the background refetch resolves. Only a manual
+      // full-page reload (which clears the cache) used to work around it.
+      queryClient.setQueryData(['setup', 'status'], { setup_complete: true })
       // Setup does NOT sign the new Admin in (PRD requirement 2 and the
       // mockup both send the user to /login, not straight into the app).
       navigate('/login', {
