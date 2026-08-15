@@ -136,10 +136,33 @@ jobs:
           STATUS=$(curl -sf http://localhost:8080/api/v1/setup/status)
           echo "$STATUS" | grep -q '"setup_complete":false'
 
+          # POST /setup deliberately does NOT sign the new Admin in (PRD
+          # requirement 2 — it redirects to /login instead), so this step
+          # gets no session cookie; login separately, same as the real UI
+          # does. This mirrors a stale version of this script that assumed
+          # setup auto-logged in and broke silently until checked by hand.
           curl -sf -X POST http://localhost:8080/api/v1/setup \
             -H "Content-Type: application/json" \
             -H "X-Yantra-Request: 1" \
-            -d '{"email":"admin@example.com","display_name":"CI Admin","password":"supersecret123"}' \
+            -d '{"email":"admin@example.com","display_name":"CI Admin","password":"supersecret123"}'
+
+          curl -sf http://localhost:8080/api/v1/setup/status | grep -q '"setup_complete":true'
+
+          curl -sf -X POST http://localhost:8080/api/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -H "X-Yantra-Request: 1" \
+            -d '{"email":"admin@example.com","password":"supersecret123"}' \
             -c /tmp/cookies.txt
 
           curl -sf http://localhost:8080/api/v1/auth/me -b /tmp/cookies.txt | grep -q admin@example.com
+
+          # Light touch on the rest of V1's surface — not exhaustive (that's
+          # what the Go/frontend test suites are for), just confirming the
+          # schema/seed/routing for the newer subsystems didn't silently break.
+          curl -sf -X POST http://localhost:8080/api/v1/groups \
+            -H "Content-Type: application/json" \
+            -H "X-Yantra-Request: 1" \
+            -d '{"name":"Smoke Test Group"}' \
+            -b /tmp/cookies.txt | grep -q "Smoke Test Group"
+
+          curl -sf http://localhost:8080/api/v1/pages -b /tmp/cookies.txt | grep -q '^\[\]$'
