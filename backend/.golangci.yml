@@ -1,0 +1,39 @@
+version: "2"
+linters:
+  # A deliberate starter set, not "enable everything" (see plan §5): each
+  # one catches a distinct, common class of Go bug.
+  enable:
+    - govet       # suspicious constructs the Go team itself flags
+    - staticcheck # correctness + non-idiomatic code, high signal-to-noise
+    - errcheck    # ignored errors — one of the most common Go bug classes
+    - ineffassign # assignments whose values are never used
+    - revive      # configurable style/maintainability checks
+  settings:
+    revive:
+      rules:
+        # Deliberately excludes the default "exported"/"package-comments"
+        # rules (which demand a godoc comment on every single exported
+        # identifier): everything under internal/ is implementation detail
+        # of one binary, never imported by another module, and requiring
+        # full godoc coverage there is noise, not signal. Comments in this
+        # codebase explain non-obvious WHY, not restate WHAT a getter does.
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
