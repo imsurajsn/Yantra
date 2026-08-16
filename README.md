@@ -89,3 +89,5 @@ Postgres.
 
 [AGPL-3.0](LICENSE) — see the PRD's [competitive positioning](PRD/PRD_v0.3.md) for
 why.
+
+Maintained by the Yantra team.
