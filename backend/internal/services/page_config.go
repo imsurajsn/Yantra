@@ -17,15 +17,16 @@ import (
 // comment). This is one intentional deviation from the mockup, which
 // embedded authHeaders directly in the YAML.
 type pageYAMLDoc struct {
-	Title          string                `yaml:"title"`
-	Description    string                `yaml:"description"`
-	Method         string                `yaml:"method"`
-	Endpoint       string                `yaml:"endpoint"`
-	PageSize       int                   `yaml:"page_size"`
-	Columns        []models.TableColumn  `yaml:"columns"`
+	Title          string                 `yaml:"title"`
+	Description    string                 `yaml:"description"`
+	Method         string                 `yaml:"method"`
+	Endpoint       string                 `yaml:"endpoint"`
+	ItemsPath      string                 `yaml:"items_path,omitempty"`
+	PageSize       int                    `yaml:"page_size"`
+	Columns        []models.TableColumn   `yaml:"columns"`
 	Writeback      *models.TableWriteback `yaml:"writeback"`
-	Fields         []models.FormField    `yaml:"fields"`
-	SuccessMessage string                `yaml:"success_message"`
+	Fields         []models.FormField     `yaml:"fields"`
+	SuccessMessage string                 `yaml:"success_message"`
 }
 
 // ParsedPage is what a successful validation produces: everything needed to
@@ -91,6 +92,7 @@ func ValidatePageYAML(pageType models.PageType, yamlText string) (*ParsedPage, [
 		}
 		cfg := models.TableConfig{
 			Source:     models.PageSource{Endpoint: doc.Endpoint, Method: method},
+			ItemsPath:  strings.TrimSpace(doc.ItemsPath),
 			Pagination: models.TablePagination{PageSize: pageSize},
 			Columns:    doc.Columns,
 			Writeback:  wb,
@@ -163,6 +165,10 @@ func DefaultTableYAML() string {
 description: Describe what this page shows.
 method: GET
 endpoint: https://api.example.com/v1/resource
+# Optional. Set this if the endpoint wraps the array in an object, e.g.
+# {"users": [...]} -> items_path: users, or {"data": {"items": [...]}} ->
+# items_path: data.items. Leave blank if the endpoint returns a bare array.
+items_path: ""
 page_size: 50
 columns:
   - key: id
@@ -208,6 +214,7 @@ func ToYAML(p *models.Page) (string, error) {
 		}
 		doc.Method = cfg.Source.Method
 		doc.Endpoint = cfg.Source.Endpoint
+		doc.ItemsPath = cfg.ItemsPath
 		doc.PageSize = cfg.Pagination.PageSize
 		doc.Columns = cfg.Columns
 		doc.Writeback = &cfg.Writeback

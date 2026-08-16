@@ -96,7 +96,15 @@ func (h *PageRuntimeHandler) Data(c *gin.Context) {
 		apierror.Send(c, http.StatusBadGateway, "upstream_error", "Could not reach the configured endpoint: "+err.Error())
 		return
 	}
-	c.Data(http.StatusOK, "application/json", body)
+	// The Table viewer assumes this endpoint always returns a bare JSON
+	// array — extraction happens here, not client-side, so a misconfigured
+	// items_path surfaces as a clear error instead of a blank/broken table.
+	items, extractErr := services.ExtractItems(body, cfg.ItemsPath)
+	if extractErr != nil {
+		apierror.Send(c, http.StatusBadGateway, "upstream_shape_error", "Unexpected response shape from the configured endpoint: "+extractErr.Error())
+		return
+	}
+	c.Data(http.StatusOK, "application/json", items)
 }
 
 type writebackRequest struct {
