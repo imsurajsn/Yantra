@@ -59,7 +59,19 @@ type Page struct {
 // the lowercased Go field name, not the json tag, which silently breaks any
 // multi-word field (IDField would become "idfield", not "id_field").
 type TableConfig struct {
-	Source     PageSource      `json:"source" yaml:"source"`
+	Source PageSource `json:"source" yaml:"source"`
+	// ItemsPath addresses a very common real-world case: many REST APIs
+	// don't return a bare JSON array, they wrap it in an envelope, e.g.
+	// {"users": [...]} or {"data": {"items": [...]}}. Empty (the default)
+	// means the endpoint's response IS the array directly — backward
+	// compatible with every page configured before this field existed.
+	// When set, it's a dot-separated path to the array within the response
+	// object, e.g. "users" or "data.items". See
+	// services.ExtractItems for the extraction logic, applied server-side
+	// (both in the preview endpoint and the runtime data-fetch endpoint) so
+	// the frontend can always assume GET /pages/:id/data returns a bare
+	// array — it must never have to guess at the response shape itself.
+	ItemsPath  string          `json:"items_path,omitempty" yaml:"items_path,omitempty"`
 	Pagination TablePagination `json:"pagination" yaml:"pagination"`
 	Columns    []TableColumn   `json:"columns" yaml:"columns"`
 	Writeback  TableWriteback  `json:"writeback" yaml:"writeback"`

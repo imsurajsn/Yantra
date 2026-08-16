@@ -137,7 +137,12 @@ func (h *PageHandler) Preview(c *gin.Context) {
 		apierror.Send(c, http.StatusBadGateway, "upstream_error", "Could not reach the configured endpoint: "+err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"columns": parsed.TableConfig.Columns, "sample_status": status, "sample_data": sample})
+	items, extractErr := services.ExtractItems(sample, parsed.TableConfig.ItemsPath)
+	if extractErr != nil {
+		c.JSON(http.StatusOK, gin.H{"columns": parsed.TableConfig.Columns, "sample_status": status, "sample_data": sample, "items_path_error": extractErr.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"columns": parsed.TableConfig.Columns, "sample_status": status, "sample_data": items})
 }
 
 type createPageRequest struct {

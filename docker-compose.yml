@@ -25,6 +25,13 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-yantra}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
       - POSTGRES_DB=${POSTGRES_DB:-yantra}
+    # Bound to 127.0.0.1 only — lets local tools (psql, DBeaver, etc.) on
+    # the host machine connect, without exposing Postgres on the network
+    # interface on internet-facing deployments. Set POSTGRES_PORT to change
+    # the host-side port, or remove this block entirely if you don't need
+    # host access to the DB.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - yantra_pgdata:/var/lib/postgresql/data
     healthcheck:

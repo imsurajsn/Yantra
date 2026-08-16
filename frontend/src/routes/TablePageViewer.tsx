@@ -12,7 +12,10 @@ export function TablePageViewer() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const { data: page, error: pageError } = useQuery({ queryKey: ['pages', pageId], queryFn: () => pagesApi.get(pageId) })
+  const { data: page, error: pageError } = useQuery({
+    queryKey: ['pages', pageId],
+    queryFn: () => pagesApi.get(pageId),
+  })
 
   useEffect(() => {
     if (page) void pagesApi.recordView(pageId)
@@ -22,7 +25,11 @@ export function TablePageViewer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId, Boolean(page)])
 
-  const { data: rows, isLoading: dataLoading, error: dataError } = useQuery({
+  const {
+    data: rows,
+    isLoading: dataLoading,
+    error: dataError,
+  } = useQuery({
     queryKey: ['pages', pageId, 'data'],
     queryFn: () => pagesApi.data(pageId) as Promise<Record<string, unknown>[]>,
     enabled: Boolean(page),
@@ -38,14 +45,24 @@ export function TablePageViewer() {
   const config = page?.config as TablePageConfig | undefined
   const pageSize = config?.pagination.page_size || PAGE_SIZE_FALLBACK
 
+  // Defensive: the backend contract guarantees a bare array (it now
+  // extracts via items_path and errors out rather than passing through a
+  // wrapped object), but this guards against any future/unexpected shape
+  // reaching the render path — a `.slice()` on a non-array previously
+  // crashed this whole component with no error boundary present.
+  const rowsIsArray = Array.isArray(rows)
+
   const sortedRows = useMemo(() => {
-    if (!rows) return []
+    if (!Array.isArray(rows)) return []
     if (!sortKey) return rows
     const copy = [...rows]
     copy.sort((a, b) => {
       const av = a[sortKey]
       const bv = b[sortKey]
-      const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av ?? '').localeCompare(String(bv ?? ''))
+      const cmp =
+        typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av ?? '').localeCompare(String(bv ?? ''))
       return sortDir === 'asc' ? cmp : -cmp
     })
     return copy
@@ -54,7 +71,8 @@ export function TablePageViewer() {
   const pageRows = sortedRows.slice(pageIndex * pageSize, pageIndex * pageSize + pageSize)
 
   const writebackMutation = useMutation({
-    mutationFn: ({ rowId, fields }: { rowId: string; fields: Record<string, unknown> }) => pagesApi.writeback(pageId, rowId, fields),
+    mutationFn: ({ rowId, fields }: { rowId: string; fields: Record<string, unknown> }) =>
+      pagesApi.writeback(pageId, rowId, fields),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pages', pageId, 'data'] })
       setEditingRow(null)
@@ -90,7 +108,9 @@ export function TablePageViewer() {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <h2 style={{ margin: 0 }}>{page.name}</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {canWrite && <button onClick={() => navigate(`/pages/${pageId}/edit`)}>Edit config</button>}
+          {canWrite && (
+            <button onClick={() => navigate(`/pages/${pageId}/edit`)}>Edit config</button>
+          )}
           {page.can_delete && <DeletePageButton pageId={pageId} pageName={page.name} />}
         </div>
       </div>
@@ -99,16 +119,27 @@ export function TablePageViewer() {
         {page.description}
       </p>
       {config.writeback.enabled && (
-        <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: 12, fontSize: 12.5, marginBottom: 16 }}>
+        <div
+          style={{
+            background: 'var(--surface-2)',
+            borderRadius: 8,
+            padding: 12,
+            fontSize: 12.5,
+            marginBottom: 16,
+          }}
+        >
           Editable — saved changes call {config.writeback.method} {config.writeback.endpoint}
         </div>
       )}
 
       {dataLoading && <p className="muted">Loading…</p>}
       {dataError && <p className="error">Failed to load data from the configured endpoint.</p>}
+      {rows && !rowsIsArray && (
+        <p className="error">The configured endpoint returned an unexpected response shape.</p>
+      )}
       {writebackError && <p className="error">{writebackError}</p>}
 
-      {rows && (
+      {rowsIsArray && (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -117,7 +148,12 @@ export function TablePageViewer() {
                   <th
                     key={c.key}
                     onClick={() => toggleSort(c.key, c.sortable)}
-                    style={{ padding: '8px 12px', fontSize: 12, textAlign: 'left', cursor: c.sortable ? 'pointer' : undefined }}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: 12,
+                      textAlign: 'left',
+                      cursor: c.sortable ? 'pointer' : undefined,
+                    }}
                   >
                     {c.label}
                     {sortKey === c.key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
@@ -180,16 +216,26 @@ export function TablePageViewer() {
               })}
             </tbody>
           </table>
-          <div style={{ display: 'flex', alignItems: 'center', padding: 12, borderTop: '1px solid var(--border)' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              padding: 12,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
             <span className="muted" style={{ fontSize: 12 }}>
-              Showing {sortedRows.length === 0 ? 0 : pageIndex * pageSize + 1}–{Math.min(pageIndex * pageSize + pageSize, sortedRows.length)} of{' '}
-              {sortedRows.length}
+              Showing {sortedRows.length === 0 ? 0 : pageIndex * pageSize + 1}–
+              {Math.min(pageIndex * pageSize + pageSize, sortedRows.length)} of {sortedRows.length}
             </span>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
               <button disabled={pageIndex === 0} onClick={() => setPageIndex(pageIndex - 1)}>
                 ‹
               </button>
-              <button disabled={pageIndex * pageSize + pageSize >= sortedRows.length} onClick={() => setPageIndex(pageIndex + 1)}>
+              <button
+                disabled={pageIndex * pageSize + pageSize >= sortedRows.length}
+                onClick={() => setPageIndex(pageIndex + 1)}
+              >
                 ›
               </button>
             </div>
